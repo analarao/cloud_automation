@@ -13,14 +13,16 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-    restart: always
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:z
+    depends_on:
+      - node_exporter
 
   cs:
     build: ./cs
     container_name: cs
     ports:
       - "8000:8000"
+      - "8001:8001"
     environment:
       - PROM_URL=http://prometheus:9090
     depends_on:
