@@ -1,0 +1,6 @@
+requests
+prometheus-api-client
+pandas
+numpy
+scikit-learn # For simulating the LSTM/forecasting model
+flask
