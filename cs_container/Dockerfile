@@ -20,3 +20,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 4. Copy the Python scripts
 COPY ml_model_service.py .
 COPY cb_mock_alert_sender.py .
+
+EXPOSE 9001

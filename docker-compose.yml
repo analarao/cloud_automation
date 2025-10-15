@@ -1,5 +1,11 @@
 # docker-compose.yml
 services:
+
+  cr-alertmanager:
+    image: prom/alertmanager:latest
+    container_name: cr-alertmanager
+    ports:
+      - "9093:9093" # Alertmanager UI port
   # --- CH (Container-Heart): The Monitored Application Host (represented by Node Exporter) ---
   node-exporter:
     image: prom/node-exporter:latest
@@ -39,12 +45,14 @@ services:
     build: ./cs_container
     container_name: cs-ml-service
     command: python -u ml_model_service.py
+    ports:
+      - 9001:9001
     environment:
       PROMETHEUS_URL: http://prometheus:9090
-      CB_API_URL: http://cb-mock-api:5001/api/v1/alert
+      CB_API_URL: http://cr-alertmanager:9093/api/v2/alerts 
     depends_on:
       - prometheus
-      - cb-mock-api # Depends on the component it sends alerts to
+      - cr-alertmanager # Depends on the component it sends alerts to
     # No exposed ports needed, it runs background jobs
 
   # --- CE (Container-Eye): Visualization Portal ---

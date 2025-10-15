@@ -1,6 +1,7 @@
-requests
-prometheus-api-client
-pandas
-numpy
-scikit-learn # For simulating the LSTM/forecasting model
-flask
+requests==2.32.5
+prometheus-api-client==0.6.0
+prometheus_client==0.23.1
+pandas==2.3.3
+numpy==2.2.6
+scikit-learn==1.7.2
+flask==3.1.2

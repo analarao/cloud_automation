@@ -11,6 +11,18 @@ groups:
     - record: node_filesystem_avail_prediction_seconds
       expr: predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[1h], 0)
       
+- name: cs_ml_prediction_alerts
+  rules:
+  - alert: PredictedCpuBreach
+    expr: cs_ml_predicted_cpu_user_rate > 0.01
+    for: 1m
+    labels:
+      severity: critical
+      team: mlops
+    annotations:
+      summary: "Predicted CPU rate will breach SLO in 15 minutes"
+      description: "The CS ML service predicts the user CPU rate for instance {{ $labels.instance }} will exceed the SLO threshold (0.01) within the next 15 minutes. Current predicted value: {{ $value }}"
+  
 # === B. CS: ANOMALY DETECTION (Statistical/Z-Score) BASES ===
 - name: statistical_anomaly_baselines
   interval: 5m

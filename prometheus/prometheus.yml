@@ -20,6 +20,14 @@ scrape_configs:
       
   - job_name: 'cs_ml_service'
     # Scrapes the CS service for its own health/latency metrics (optional but good practice)
+    # The 'metrics_path' is correct here, and is indented properly under 'job_name'.
     metrics_path: /metrics
     static_configs:
-      - targets: ['cs-ml-service:8000'] # Assuming the ML service exposes health metrics on 8000
+     - targets: ['cs-ml-service:8000'] # Assuming the ML service exposes health metrics on 8000
+
+
+  - job_name: 'cs_predictions_metrics'
+    metrics_path: /metrics 
+    static_configs:
+    #testing
+      - targets: ['cs-ml-service:9001']

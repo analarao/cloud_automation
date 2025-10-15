@@ -12,3 +12,12 @@ providers:
       path: /etc/grafana/provisioning/dashboards/cpu-demo-dashboard.json # <-- Must match container path
       # The .json file extension is optional but often helps Grafana
       # Search for and include your .json files.
+  - name: 'cs-ml-dashboard'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      #   Separate provider for the new file
+      path: /etc/grafana/provisioning/dashboards/cs_ml_dashboard.json
