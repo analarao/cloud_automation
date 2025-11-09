@@ -40,6 +40,11 @@ class UsersStub(object):
                 request_serializer=protofile__pb2.GetUsersRequest.SerializeToString,
                 response_deserializer=protofile__pb2.GetUsersResponse.FromString,
                 _registered_method=True)
+        self.DescribeUser = channel.unary_unary(
+                '/users.Users/DescribeUser',
+                request_serializer=protofile__pb2.DescribeUserRequest.SerializeToString,
+                response_deserializer=protofile__pb2.DescribeUserResponse.FromString,
+                _registered_method=True)
 
 
 class UsersServicer(object):
@@ -52,6 +57,12 @@ class UsersServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def DescribeUser(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_UsersServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -59,6 +70,11 @@ def add_UsersServicer_to_server(servicer, server):
                     servicer.GetUsers,
                     request_deserializer=protofile__pb2.GetUsersRequest.FromString,
                     response_serializer=protofile__pb2.GetUsersResponse.SerializeToString,
+            ),
+            'DescribeUser': grpc.unary_unary_rpc_method_handler(
+                    servicer.DescribeUser,
+                    request_deserializer=protofile__pb2.DescribeUserRequest.FromString,
+                    response_serializer=protofile__pb2.DescribeUserResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -89,6 +105,33 @@ class Users(object):
             '/users.Users/GetUsers',
             protofile__pb2.GetUsersRequest.SerializeToString,
             protofile__pb2.GetUsersResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DescribeUser(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/users.Users/DescribeUser',
+            protofile__pb2.DescribeUserRequest.SerializeToString,
+            protofile__pb2.DescribeUserResponse.FromString,
             options,
             channel_credentials,
             insecure,

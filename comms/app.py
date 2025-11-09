@@ -18,6 +18,11 @@ class Users(protofile_pb2_grpc.UsersServicer):
                 phonenumber=9663304909
             )
         )
+    
+    def DescribeUser(self, request, context):
+        reply  = protofile_pb2.DescribeUserResponse()
+        reply.text = f"the name of the user is {request.user.name}, their id is {request.user.id} and their phonenumber is {request.user.phonenumber}"
+        return reply
 
 
 def serve():

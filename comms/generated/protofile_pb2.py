@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0fprotofile.proto\x12\x05users\"D\n\x04User\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\n\n\x02id\x18\x02 \x01(\t\x12\r\n\x05\x65mail\x18\x03 \x01(\t\x12\x13\n\x0bphonenumber\x18\x04 \x01(\x03\"\x11\n\x0fGetUsersRequest\"-\n\x10GetUsersResponse\x12\x19\n\x04user\x18\x01 \x01(\x0b\x32\x0b.users.User2F\n\x05Users\x12=\n\x08GetUsers\x12\x16.users.GetUsersRequest\x1a\x17.users.GetUsersResponse\"\x00\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0fprotofile.proto\x12\x05users\"D\n\x04User\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\n\n\x02id\x18\x02 \x01(\t\x12\r\n\x05\x65mail\x18\x03 \x01(\t\x12\x13\n\x0bphonenumber\x18\x04 \x01(\x03\"\x11\n\x0fGetUsersRequest\"-\n\x10GetUsersResponse\x12\x19\n\x04user\x18\x01 \x01(\x0b\x32\x0b.users.User\"0\n\x13\x44\x65scribeUserRequest\x12\x19\n\x04user\x18\x01 \x01(\x0b\x32\x0b.users.User\"$\n\x14\x44\x65scribeUserResponse\x12\x0c\n\x04text\x18\x01 \x01(\t2\x91\x01\n\x05Users\x12=\n\x08GetUsers\x12\x16.users.GetUsersRequest\x1a\x17.users.GetUsersResponse\"\x00\x12I\n\x0c\x44\x65scribeUser\x12\x1a.users.DescribeUserRequest\x1a\x1b.users.DescribeUserResponse\"\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -37,6 +37,10 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_GETUSERSREQUEST']._serialized_end=113
   _globals['_GETUSERSRESPONSE']._serialized_start=115
   _globals['_GETUSERSRESPONSE']._serialized_end=160
-  _globals['_USERS']._serialized_start=162
-  _globals['_USERS']._serialized_end=232
+  _globals['_DESCRIBEUSERREQUEST']._serialized_start=162
+  _globals['_DESCRIBEUSERREQUEST']._serialized_end=210
+  _globals['_DESCRIBEUSERRESPONSE']._serialized_start=212
+  _globals['_DESCRIBEUSERRESPONSE']._serialized_end=248
+  _globals['_USERS']._serialized_start=251
+  _globals['_USERS']._serialized_end=396
 # @@protoc_insertion_point(module_scope)

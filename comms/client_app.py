@@ -16,7 +16,23 @@ def run():
     with grpc.insecure_channel("localhost:50051") as channel:
         stub = protofile_pb2_grpc.UsersStub(channel)
         response = stub.GetUsers(protofile_pb2.GetUsersRequest())
-    print(response.user)
+
+        print(response.user)
+
+        name = input("name of the use to describe: ")
+        id = input("id of the use to describe: ")
+        email = input("email of the use to describe: ")
+        phonenumber = int(input("phonenumber of the use to describe: "))
+
+        describe_respone = stub.DescribeUser(protofile_pb2.DescribeUserRequest(
+            user = protofile_pb2.User(
+                name = name,
+                id = id,
+                email = email,
+                phonenumber = phonenumber,
+            )))
+        
+        print(describe_respone)
 
 
 if __name__ == "__main__":

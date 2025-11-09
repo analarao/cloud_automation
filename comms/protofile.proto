@@ -10,6 +10,7 @@ package users;
 // The greeting service definition.
 service Users {
     rpc GetUsers(GetUsersRequest) returns (GetUsersResponse){}
+    rpc DescribeUser(DescribeUserRequest) returns (DescribeUserResponse){}
     // rpc GetUserById(GetUserByIdRequest) returns (GetUserByIdResponse){}
 }
 
@@ -26,4 +27,12 @@ message GetUsersRequest {}
 // The response message containing the greetings
 message GetUsersResponse {
   User user = 1;
+}
+
+message DescribeUserRequest {
+  User user = 1;
+}
+
+message DescribeUserResponse {
+  string text = 1;
 }
