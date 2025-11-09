@@ -19,10 +19,10 @@ def run():
 
         print(response.user)
 
-        name = input("name of the use to describe: ")
-        id = input("id of the use to describe: ")
-        email = input("email of the use to describe: ")
-        phonenumber = int(input("phonenumber of the use to describe: "))
+        name = input("name of the user to describe: ")
+        id = input("id of the user to describe: ")
+        email = input("email of the user to describe: ")
+        phonenumber = int(input("phonenumber of the user to describe: "))
 
         describe_respone = stub.DescribeUser(protofile_pb2.DescribeUserRequest(
             user = protofile_pb2.User(
