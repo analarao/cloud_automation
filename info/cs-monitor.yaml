@@ -1,0 +1,22 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cs-service-monitor
+  # Put this in the same namespace as your CS service
+  namespace: monitoring 
+  labels:
+    # This 'release: prometheus' label is the "magic hook" that 
+    # tells our specific kube-prometheus-stack to pay attention to this file.
+    release: prometheus
+spec:
+  # This section finds the Service to monitor.
+  selector:
+    matchLabels:
+      # This MUST match a label on your CS Service YAML
+      app: cs-service 
+  
+  # This section describes which port on that Service to scrape.
+  endpoints:
+  - port: http-metrics
+    # Scrape metrics from this port every 15 seconds.
+    interval: 15s
