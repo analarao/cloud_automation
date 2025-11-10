@@ -1,0 +1,30 @@
+# This is a file of overrides for the Helm chart.
+# You would apply this by running:
+# helm upgrade prometheus prometheus-community/kube-prometheus-stack \
+#   --namespace monitoring \
+#   -f my-prometheus-overrides.yaml
+
+prometheus:
+  prometheusSpec:
+    
+    # Example 1: Change data retention from the default (10d) to 30 days.
+    retention: 30d
+    
+    # Example 2: Change the storage limit.
+    storage:
+      volumeClaimTemplate:
+        spec:
+          resources:
+            requests:
+              # By default it's 10Gi, let's make it 50Gi.
+              storage: 50Gi
+
+# We can also change Grafana settings at the same time
+grafana:
+  # This disables the default "admin" user
+  adminUser: ""
+  
+  # This tells Grafana to let users sign up
+  grafana.ini:
+    users:
+      allow_sign_up: true

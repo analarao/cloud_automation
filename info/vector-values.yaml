@@ -1,0 +1,11 @@
+role: "Agent"
+sinks:
+  loki_sink:
+    type: "loki"
+    inputs: [ "kubernetes_logs" ]
+    # This is the internal K8s DNS name for the Loki service
+    endpoint: "http://loki.monitoring.svc.cluster.local:3100"
+    labels:
+      pod_namespace: '{{ kubernetes.pod_namespace }}'
+      pod_name: '{{ kubernetes.pod_name }}'
+      container_name: '{{ kubernetes.container_name }}'
