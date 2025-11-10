@@ -1,11 +1,42 @@
+# Disable the K8s Service, since this is an Agent role
+service:
+  enabled: false
+
 role: "Agent"
-sinks:
-  loki_sink:
-    type: "loki"
-    inputs: [ "kubernetes_logs" ]
-    # This is the internal K8s DNS name for the Loki service
-    endpoint: "http://loki.monitoring.svc.cluster.local:3100"
-    labels:
-      pod_namespace: '{{ kubernetes.pod_namespace }}'
-      pod_name: '{{ kubernetes.pod_name }}'
-      container_name: '{{ kubernetes.container_name }}'
+
+# The chart renders this via 'tpl', so escape any handlebars/mustache with {{"{{"}} ... {{"}}"}}
+customConfig:
+  data_dir: /var/lib/vector
+
+  sources:
+    kubernetes_logs:
+      type: kubernetes_logs
+
+  transforms:
+    to_labels:
+      type: remap
+      inputs: [kubernetes_logs]
+      source: |
+        .namespace = .kubernetes.pod_namespace;
+        .pod       = .kubernetes.pod_name;
+        .container = .kubernetes.container_name;
+        if exists(.kubernetes.pod_labels.app) {
+          .app = .kubernetes.pod_labels.app
+        } else {
+          .app = "unknown"
+        };
+        .message = to_string!(.message);        
+  sinks:
+    loki_sink:
+      type: loki
+      inputs: [to_labels]
+      endpoint: http://loki.monitoring.svc.cluster.local:3100
+      out_of_order_action: accept
+      encoding:
+        codec: json
+      labels:
+        app:       '{{"{{"}} app {{"}}"}}'
+        container: '{{"{{"}} container {{"}}"}}'
+        namespace: '{{"{{"}} namespace {{"}}"}}'
+        pod:       '{{"{{"}} pod {{"}}"}}'
+        stream:    '{{"{{"}} stream {{"}}"}}'
