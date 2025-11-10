@@ -1,0 +1,114 @@
+# Download and install istioctl (if you don't have it)
+curl -L https://istio.io/downloadIstio | sh -
+
+# Install Istio on the cluster (use the 'demo' profile for now)
+./istio-1.xx.x/bin/istioctl install --set profile=demo -y
+
+kubectl create namespace bookinfo-app
+kubectl create namespace monitoring
+
+
+kubectl label namespace bookinfo-app istio-injection=enabled
+
+# Apply the core Bookinfo services to our 'bookinfo-app' namespace
+kubectl apply -f ./istio-1.xx.x/samples/bookinfo/platform/kube/bookinfo.yaml -n bookinfo-app
+
+# Apply the gateway to allow external traffic
+kubectl apply -f ./istio-1.xx.x/samples/bookinfo/networking/bookinfo-gateway.yaml -n bookinfo-app
+
+
+sudo dnf install helm
+
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo add vector https://helm.vector.dev
+helm repo update
+
+
+
+
+helm install prometheus prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+  --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false
+
+
+#inside info dir
+helm install loki grafana/loki -n monitoring -f loki-single.yaml 
+
+  
+  # Apply the monitor config provided by Istio
+  kubectl apply -f ./istio-1.28.0/samples/addons/extras/prometheus-operator.yaml
+  #not this
+  #kubectl apply -f ./istio-1.xx.x/samples/addons/prometheus.yaml -n monitoring 
+
+----------VECTOR---------
+Install Vector (as the Agent): We'll deploy Vector as a DaemonSet (one agent per K8s node) to collect logs from all containers on that node.
+
+First, create a vector-values.yaml file. This tells Vector where to send the logs (our Loki service).
+
+YAML
+
+# vector-values.yaml
+# Disable the K8s Service, since this is an Agent role
+service:
+  enabled: false
+
+role: "Agent"
+
+# The chart renders this via 'tpl', so escape any handlebars/mustache with {{"{{"}} ... {{"}}"}}
+customConfig:
+  data_dir: /var/lib/vector
+
+  sources:
+    kubernetes_logs:
+      type: kubernetes_logs
+
+  transforms:
+    to_labels:
+      type: remap
+      inputs: [kubernetes_logs]
+      source: |
+        .namespace = .kubernetes.pod_namespace;
+        .pod       = .kubernetes.pod_name;
+        .container = .kubernetes.container_name;
+        if exists(.kubernetes.pod_labels.app) {
+          .app = .kubernetes.pod_labels.app
+        } else {
+          .app = "unknown"
+        };
+        .message = to_string!(.message);        
+  sinks:
+    loki_sink:
+      type: loki
+      inputs: [to_labels]
+      endpoint: http://loki.monitoring.svc.cluster.local:3100
+      out_of_order_action: accept
+      encoding:
+        codec: json
+      labels:
+        app:       '{{"{{"}} app {{"}}"}}'
+        container: '{{"{{"}} container {{"}}"}}'
+        namespace: '{{"{{"}} namespace {{"}}"}}'
+        pod:       '{{"{{"}} pod {{"}}"}}'
+        stream:    '{{"{{"}} stream {{"}}"}}'
+
+Now, install the Vector Helm chart.
+
+Bash
+
+
+
+helm install vector vector/vector \
+  --namespace monitoring \
+  -f vector-values.yaml
+  
+  
+----------VECTOR END---------
+
+#vizualization
+kubectl port-forward --namespace monitoring svc/prometheus-grafana 8080:80
+kubectl -n monitoring port-forward svc/loki 3100:3100
+
+
+
