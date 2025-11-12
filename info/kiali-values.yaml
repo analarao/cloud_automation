@@ -1,0 +1,14 @@
+# kiali-values.yaml
+
+external_services:
+  prometheus:
+    # This is the K8s service name of your *real* Prometheus
+    url: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+  grafana:
+    # This is the K8s service name of your *real* Grafana
+    url: "http://prometheus-grafana.monitoring.svc.cluster.local:80"
+
+# Disable the addon Jaeger/Tracing
+istio_component_namespaces:
+  tracing:
+    name: ""
