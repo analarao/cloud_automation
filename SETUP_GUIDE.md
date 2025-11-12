@@ -167,7 +167,7 @@ kubectl get cm -n monitoring prometheus-grafana -o yaml | grep allow_embedding
 ```bash
 helm install loki grafana/loki \
   --namespace monitoring \
-  -f info/loki-single.yaml
+  -f loki-single.yaml
 ```
 
 **Verify:**
@@ -180,7 +180,7 @@ kubectl get svc -n monitoring loki
 ```bash
 helm upgrade loki grafana/loki \
   --namespace monitoring \
-  -f info/loki-single.yaml
+  -f loki-single.yaml
 ```
 
 #### Access Loki (via port-forward)
@@ -199,7 +199,7 @@ Vector collects logs from all containers and ships them to Loki.
 ```bash
 helm install vector vector/vector \
   --namespace monitoring \
-  -f info/vector-values.yaml
+  -f vector-values.yaml
 ```
 
 **Note:** Vector is deployed as a **DaemonSet** (one pod per node) with the "Agent" role.
@@ -214,7 +214,7 @@ kubectl get pods -n monitoring -l app.kubernetes.io/name=vector
 ```bash
 helm upgrade vector vector/vector \
   --namespace monitoring \
-  -f info/vector-values.yaml
+  -f vector-values.yaml
 ```
 
 #### Check Vector Logs
@@ -233,7 +233,7 @@ Kiali provides a visual UI for managing and monitoring the Istio service mesh, w
 ```bash
 helm install kiali kiali/kiali-server \
   --namespace istio-system \
-  -f info/kiali-values.yaml
+  -f kiali-values.yaml
 ```
 
 **Verify:**
@@ -245,13 +245,19 @@ kubectl get pods -n istio-system -l app=kiali
 ```bash
 helm upgrade kiali kiali/kiali-server \
   --namespace istio-system \
-  -f info/kiali-values.yaml
+  -f kiali-values.yaml
 ```
 
 #### Launch Kiali Dashboard
 ```bash
 # Opens Kiali UI at http://localhost:20001/kiali
 istioctl dashboard kiali
+```
+
+#### Get Kiali Login Token
+```bash
+kubectl create token kiali -n istio-system
+# Copy the token and paste it into the Kiali login page
 ```
 
 ---
@@ -403,13 +409,13 @@ helm install prometheus prometheus-community/kube-prometheus-stack \
 kubectl apply -f ./istio-1.xx.x/samples/addons/extras/prometheus-operator.yaml
 
 # 6. Install Loki
-helm install loki grafana/loki --namespace monitoring -f info/loki-single.yaml
+helm install loki grafana/loki --namespace monitoring -f loki-single.yaml
 
 # 7. Install Vector
-helm install vector vector/vector --namespace monitoring -f info/vector-values.yaml
+helm install vector vector/vector --namespace monitoring -f vector-values.yaml
 
 # 8. Install Kiali
-helm install kiali kiali/kiali-server --namespace istio-system -f info/kiali-values.yaml
+helm install kiali kiali/kiali-server --namespace istio-system -f kiali-values.yaml
 
 # 9. Launch services
 kubectl port-forward --namespace monitoring svc/prometheus-grafana 8080:80 &
