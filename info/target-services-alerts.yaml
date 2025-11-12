@@ -8,18 +8,18 @@ metadata:
     release: prometheus
 spec:
   groups:
-  - name: bookinfo.rules
+  - name: target-services.rules
     rules:
     # This is our new custom alert
     - alert: BookinfoReviewsDown
       
       # This is the PromQL query. 
       # "up{...} == 0" means the service is down.
-      expr: up{app="reviews", namespace="bookinfo-app"} == 0
+      expr: (sum(up{pod=~"reviews-v.*", namespace="target-services", job="istio-system/envoy-stats-monitor"}) or vector(0)) == 0
       
       # How long the app must be down before the alert fires.
       # This prevents "flapping" (false alarms).
-      for: 1m
+      for: 10s
       
       # Labels to add to the alert. Used by Alertmanager to route it.
       labels:
@@ -28,4 +28,4 @@ spec:
       # The human-readable message.
       annotations:
         summary: "Bookinfo 'reviews' service is down"
-        description: "No instances of the 'reviews' service in the 'bookinfo-app' namespace are reachable."
+        description: "No instances of the 'reviews' service in the 'target-services' namespace are reachable."
