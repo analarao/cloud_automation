@@ -10,7 +10,7 @@ Complete guide for deploying and managing Istio, Prometheus, Grafana, Loki, Vect
 2. [Namespace & Cluster Configuration](#namespace--cluster-configuration)
 3. [Service Installation & Configuration](#service-installation--configuration)
 4. [Port Forwarding & Access](#port-forwarding--access)
-5. [Troubleshooting](#troubleshooting)
+5. [Restart Instructions](#restart-instructions)
 6. [Complete Uninstall](#complete-uninstall)
 
 ---
@@ -309,6 +309,112 @@ kubectl port-forward --namespace monitoring svc/prometheus-grafana 8080:80 &
 kubectl port-forward --namespace monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090 &
 kubectl port-forward -n monitoring svc/loki 3100:3100 &
 istioctl dashboard kiali &  # Kiali also runs in background
+```
+
+---
+
+## Restart Instructions
+
+Use these commands to gracefully stop and restart all services **without uninstalling**. This preserves your configurations and data.
+
+### Stop All Services (Keep Deployments Intact)
+
+#### 1. Scale Down Kiali
+```bash
+kubectl scale deployment kiali -n istio-system --replicas=0
+```
+
+#### 2. Scale Down Vector
+```bash
+kubectl scale daemonset vector -n monitoring --replicas=0
+```
+
+#### 3. Scale Down Loki
+```bash
+kubectl scale deployment loki -n monitoring --replicas=0
+```
+
+#### 4. Scale Down Prometheus
+```bash
+kubectl scale deployment prometheus-kube-prometheus-prometheus -n monitoring --replicas=0
+```
+
+#### 5. Scale Down Grafana
+```bash
+kubectl scale deployment prometheus-grafana -n monitoring --replicas=0
+```
+
+#### 6. Stop Bookinfo Services
+```bash
+kubectl scale deployment productpage -n target-services --replicas=0
+kubectl scale deployment reviews -n target-services --replicas=0
+kubectl scale deployment ratings -n target-services --replicas=0
+kubectl scale deployment details -n target-services --replicas=0
+```
+
+### Restart All Services
+
+#### 1. Start Bookinfo Services
+```bash
+kubectl scale deployment productpage -n target-services --replicas=1
+kubectl scale deployment reviews -n target-services --replicas=1
+kubectl scale deployment ratings -n target-services --replicas=1
+kubectl scale deployment details -n target-services --replicas=1
+```
+
+#### 2. Restart Grafana
+```bash
+kubectl scale deployment prometheus-grafana -n monitoring --replicas=1
+```
+
+#### 3. Restart Prometheus
+```bash
+kubectl scale deployment prometheus-kube-prometheus-prometheus -n monitoring --replicas=1
+```
+
+#### 4. Restart Loki
+```bash
+kubectl scale deployment loki -n monitoring --replicas=1
+```
+
+#### 5. Restart Vector
+```bash
+kubectl scale daemonset vector -n monitoring --replicas=1
+```
+
+#### 6. Restart Kiali
+```bash
+kubectl scale deployment kiali -n istio-system --replicas=1
+```
+
+### Verify Services Are Running
+
+```bash
+# Check all namespaces
+kubectl get pods -n target-services
+kubectl get pods -n monitoring
+kubectl get pods -n istio-system
+
+# All pods should show READY status
+```
+
+### Quick Restart (All at Once)
+
+If you want to restart everything in one go:
+
+```bash
+# Stop all
+kubectl scale deployment -n target-services --all --replicas=0
+kubectl scale deployment -n monitoring --all --replicas=0
+kubectl scale daemonset -n monitoring --all --replicas=0
+
+# Wait for pods to terminate
+sleep 10
+
+# Restart all
+kubectl scale deployment -n target-services --all --replicas=1
+kubectl scale deployment -n monitoring --all --replicas=1
+kubectl scale daemonset -n monitoring --all --replicas=1
 ```
 
 ---
