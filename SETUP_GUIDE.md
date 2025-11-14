@@ -6,12 +6,210 @@ Complete guide for deploying and managing Istio, Prometheus, Grafana, Loki, Vect
 
 ## Table of Contents
 
-1. [Prerequisites & Initial Setup](#prerequisites--initial-setup)
-2. [Namespace & Cluster Configuration](#namespace--cluster-configuration)
-3. [Service Installation & Configuration](#service-installation--configuration)
-4. [Port Forwarding & Access](#port-forwarding--access)
-5. [Restart Instructions](#restart-instructions)
-6. [Complete Uninstall](#complete-uninstall)
+1. [Kubernetes & Minikube Setup](#kubernetes--minikube-setup)
+2. [Prerequisites & Initial Setup](#prerequisites--initial-setup)
+3. [Namespace & Cluster Configuration](#namespace--cluster-configuration)
+4. [Service Installation & Configuration](#service-installation--configuration)
+5. [Port Forwarding & Access](#port-forwarding--access)
+6. [Restart Instructions](#restart-instructions)
+7. [Complete Uninstall](#complete-uninstall)
+
+---
+
+## Kubernetes & Minikube Setup
+
+### Install Minikube (Kubernetes Cluster Manager)
+
+Minikube allows you to run a local Kubernetes cluster on your machine for development and testing.
+
+#### Prerequisites
+- **CPU:** 2+ cores
+- **RAM:** 2+ GB available
+- **Disk Space:** 20+ GB available
+- **Container Runtime:** Docker or Podman (must be installed and running)
+
+#### Install Minikube
+
+**On Linux (Fedora/RHEL/CentOS):**
+```bash
+# Download Minikube binary
+curl -LO https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
+
+# Make it executable and move to PATH
+sudo install minikube-linux-amd64 /usr/local/bin/minikube
+
+# Verify installation
+minikube version
+```
+
+**On macOS:**
+```bash
+# Using Homebrew
+brew install minikube
+
+# Verify installation
+minikube version
+```
+
+**On Windows:**
+```powershell
+# Using Chocolatey
+choco install minikube
+
+# Verify installation
+minikube version
+```
+
+### Install kubectl (Kubernetes Command-Line Tool)
+
+`kubectl` is the command-line interface for interacting with your Kubernetes cluster.
+
+**On Linux (Fedora/RHEL/CentOS):**
+```bash
+# Download kubectl binary
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+
+# Make it executable and move to PATH
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+# Verify installation
+kubectl version --client
+```
+
+**On macOS:**
+```bash
+brew install kubectl
+kubectl version --client
+```
+
+**On Windows:**
+```powershell
+choco install kubectl
+kubectl version --client
+```
+
+### Start Minikube Cluster
+
+#### Basic Start (Default Configuration)
+```bash
+# Start a Minikube cluster with default settings
+minikube start
+
+# This will:
+# - Create a virtual machine (or container)
+# - Install Kubernetes
+# - Configure kubectl to use the cluster
+```
+
+#### Start with Custom Configuration (Recommended for This Setup)
+```bash
+# Start with more resources to handle Istio + monitoring stack
+minikube start \
+  --cpus=4 \
+  --memory=8192 \
+  --disk-size=30g \
+  --driver=docker
+
+# Flags explained:
+# --cpus=4          — Allocate 4 CPU cores
+# --memory=8192     — Allocate 8GB RAM (in MB)
+# --disk-size=30g   — Allocate 30GB disk space
+# --driver=docker   — Use Docker as the container runtime
+```
+
+#### Verify Cluster Is Running
+```bash
+# Check Minikube status
+minikube status
+
+# Should show:
+# minikube
+# type: Control Plane
+# host: Running
+# kubelet: Running
+# apiserver: Running
+
+# Check kubectl can access the cluster
+kubectl cluster-info
+
+# Check all system pods are running
+kubectl get pods -n kube-system
+```
+
+### Enable Required Minikube Add-ons
+
+Minikube has built-in add-ons that enable additional functionality.
+
+#### Enable Metrics Server (for resource monitoring)
+```bash
+minikube addons enable metrics-server
+
+# Verify
+kubectl get deployment metrics-server -n kube-system
+```
+
+#### Enable Ingress Controller
+```bash
+minikube addons enable ingress
+
+# Verify
+kubectl get pods -n ingress-nginx
+```
+
+#### List All Available Add-ons
+```bash
+minikube addons list
+```
+
+### Access the Minikube Dashboard (Optional)
+
+Minikube includes a built-in Kubernetes dashboard for visual cluster management.
+
+```bash
+# Launch the dashboard in your browser
+minikube dashboard
+
+# This opens a web UI showing:
+# - All namespaces and resources
+# - Pods, services, deployments
+# - Resource usage and logs
+# - Configuration and settings
+```
+
+### Useful Minikube Commands
+
+| Command | Purpose |
+|---------|---------|
+| `minikube status` | Show the current status of Minikube cluster |
+| `minikube start` | Start the Minikube cluster |
+| `minikube stop` | Stop the cluster (preserves state) |
+| `minikube restart` | Restart the cluster |
+| `minikube delete` | Delete the cluster (WARNING: deletes all data) |
+| `minikube ip` | Get the IP address of Minikube |
+| `minikube ssh` | SSH into the Minikube VM |
+| `minikube logs` | View Minikube logs for debugging |
+| `minikube dashboard` | Open Kubernetes dashboard in browser |
+| `minikube addons list` | List all available add-ons |
+| `minikube addons enable <addon>` | Enable a specific add-on |
+| `minikube addons disable <addon>` | Disable a specific add-on |
+| `minikube tunnel` | Enable external access to LoadBalancer services |
+| `minikube docker-env` | Set Docker environment to use Minikube's Docker daemon |
+| `minikube mount <host-path>:<vm-path>` | Mount a directory from host into Minikube VM |
+
+### Verify Kubernetes Is Ready
+
+```bash
+# Check all system namespaces
+kubectl get pods -A
+
+# Check nodes
+kubectl get nodes
+
+# Check cluster info
+kubectl cluster-info
+
+# You should see a single node named "minikube"
+```
 
 ---
 
