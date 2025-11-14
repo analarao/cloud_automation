@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-service-urls
+  namespace: monitoring
+data:
+  PROMETHEUS_URL: "http://prometheus-kube-prometheus-prometheus:$(PROMETHEUS_PORT)"
+  GRAFANA_URL: "http://prometheus-grafana:$(GRAFANA_PORT)"
+  LOKI_URL: "http://loki:$(LOKI_PORT)"
