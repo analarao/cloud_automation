@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+
+resources:
+- configmap.yaml
+
+# Define variables to be substituted
+vars:
+- name: PROMETHEUS_PORT #target var
+  objref:
+    kind: ConfigMap
+    name: my-ports-config
+    apiVersion: v1
+  fieldref:
+    fieldpath: data.PROMETHEUS_PORT #source var
+- name: GRAFANA_PORT
+  objref:
+    kind: ConfigMap
+    name: my-ports-config
+    apiVersion: v1
+  fieldref:
+    fieldpath: data.GRAFANA_PORT
+- name: LOKI_PORT
+  objref:
+    kind: ConfigMap
+    name: my-ports-config
+    apiVersion: v1
+  fieldref:
+    fieldpath: data.LOKI_PORT
+
+
+#these are the source varss
+configMapGenerator:
+- name: my-ports-config
+  literals:
+  - PROMETHEUS_PORT="9090"
+  - GRAFANA_PORT="3000"
+  - LOKI_PORT="3100"

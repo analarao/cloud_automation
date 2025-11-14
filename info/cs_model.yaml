@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cs_model
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cs_model
+  template:
+    metadata:
+      labels:
+        app: cs_model
+    spec:
+      containers:
+      - name: cs_model_container
+        image: chandrashekar316/capstone:cs_model
+        imagePullPolicy: IfNotPresent
+        # env:
+        # - name: PROMETHEUS_URL
+        #   value: "http://prometheus-kube-prometheus:9090"
+        # - name: GRAFANA_URL
+        #   value: "http://grafana:3000"
+        # - name: LOKI_URL
+        #   value: "http://loki:3100"
