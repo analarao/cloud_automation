@@ -18,6 +18,11 @@ spec:
         # Image is built from values.yaml
         image: "{{ .Values.pythonApp.image }}:{{ .Values.pythonApp.tag }}"
         imagePullPolicy: IfNotPresent
+        command: ["python", "cs_model_service.py"]
+        ports:
+        - containerPort: 9001
+          name: metrics
+          protocol: TCP
         envFrom:
         - configMapRef:
             # References the name of the ConfigMap created above
