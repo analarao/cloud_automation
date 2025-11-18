@@ -365,7 +365,7 @@ kubectl get cm -n monitoring prometheus-grafana -o yaml | grep allow_embedding
 ```bash
 helm install loki grafana/loki \
   --namespace monitoring \
-  -f loki-single.yaml
+  -f helm/loki/values.yaml
 ```
 
 **Verify:**
@@ -378,7 +378,7 @@ kubectl get svc -n monitoring loki
 ```bash
 helm upgrade loki grafana/loki \
   --namespace monitoring \
-  -f loki-single.yaml
+  -f helm/loki/values.yaml
 ```
 
 #### Access Loki (via port-forward)
@@ -397,7 +397,7 @@ Vector collects logs from all containers and ships them to Loki.
 ```bash
 helm install vector vector/vector \
   --namespace monitoring \
-  -f vector-values.yaml
+  -f helm/vector/values.yaml
 ```
 
 **Note:** Vector is deployed as a **DaemonSet** (one pod per node) with the "Agent" role.
@@ -412,7 +412,7 @@ kubectl get pods -n monitoring -l app.kubernetes.io/name=vector
 ```bash
 helm upgrade vector vector/vector \
   --namespace monitoring \
-  -f vector-values.yaml
+  -f helm/vector/values.yaml
 ```
 
 #### Check Vector Logs
@@ -423,7 +423,80 @@ kubectl logs -n monitoring -l app.kubernetes.io/name=vector --tail=50
 
 ---
 
-### 6. Kiali (Service Mesh Visualization)
+### 6. CS Model (ML Prediction Service)
+
+The CS (Container-Spine) ML Model service queries Prometheus for metrics, performs LSTM predictions, and sends alerts to Alertmanager when SLO thresholds are exceeded.
+
+#### Install CS Model Service
+```bash
+# Navigate to the Helm chart directory
+cd helm/monitoring-services
+
+# Install the monitoring-services Helm release (deploys CS Model + ConfigMap)
+helm install monitoring-services . --namespace monitoring
+
+# Verify deployment
+kubectl get pods -n monitoring -l app=monitoring-services-cs-model
+kubectl get svc -n monitoring monitoring-services-cs-model
+```
+
+**Verify Deployment:**
+```bash
+# Check pod status (should be 1/1 Running)
+kubectl get pods -n monitoring -l app=monitoring-services-cs-model
+
+# View pod logs
+kubectl logs -n monitoring -l app=monitoring-services-cs-model
+
+# Expected output:
+# ✓ Connected to Prometheus at http://prometheus-kube-prometheus-prometheus:9090
+# ✓ Metrics exposed on 0.0.0.0:9001
+# ✓ CS ML Service started successfully. Entering prediction cycle...
+```
+
+#### Upgrade CS Model Configuration
+```bash
+cd helm/monitoring-services
+
+# If you modified values.yaml, upgrade the release
+helm upgrade monitoring-services . --namespace monitoring
+```
+
+#### Access CS Model Metrics
+```bash
+# Port-forward to metrics endpoint (port 9001)
+kubectl port-forward -n monitoring svc/monitoring-services-cs-model 9001:9001
+
+# In another terminal, query metrics
+curl http://localhost:9001/metrics | grep cs_ml
+
+# Expected output:
+# cs_ml_predicted_cpu_user_rate{instance="ch-application-host",target_metric="node_cpu_user_rate"} <value>
+# cs_ml_slo_status{instance="ch-application-host",slo_threshold="0.01"} <status>
+```
+
+#### Verify Prometheus Scraping CS Model Metrics
+```bash
+# Access Prometheus UI
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
+
+# Open http://localhost:9090 in browser
+# Query: cs_ml_predicted_cpu_user_rate
+# Should see metrics from CS Model service
+```
+
+#### Check for Alerts
+```bash
+# Access Alertmanager UI
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-alertmanager 9093:9093
+
+# Open http://localhost:9093 in browser
+# Check if "PredictedCpuBreach" alerts are firing
+```
+
+---
+
+### 7. Kiali (Service Mesh Visualization)
 
 Kiali provides a visual UI for managing and monitoring the Istio service mesh, with integration to Prometheus, Grafana, and Jaeger.
 
@@ -431,7 +504,7 @@ Kiali provides a visual UI for managing and monitoring the Istio service mesh, w
 ```bash
 helm install kiali kiali/kiali-server \
   --namespace istio-system \
-  -f kiali-values.yaml
+  -f helm/kiali/values.yaml
 ```
 
 **Verify:**
@@ -443,7 +516,7 @@ kubectl get pods -n istio-system -l app=kiali
 ```bash
 helm upgrade kiali kiali/kiali-server \
   --namespace istio-system \
-  -f kiali-values.yaml
+  -f helm/kiali/values.yaml
 ```
 
 #### Launch Kiali Dashboard
@@ -555,6 +628,11 @@ kubectl scale deployment ratings -n target-services --replicas=0
 kubectl scale deployment details -n target-services --replicas=0
 ```
 
+#### 7. Stop CS Model Service
+```bash
+kubectl scale deployment monitoring-services-cs-model -n monitoring --replicas=0
+```
+
 ### Restart All Services
 
 #### 1. Start Bookinfo Services
@@ -588,6 +666,11 @@ kubectl scale daemonset vector -n monitoring --replicas=1
 #### 6. Restart Kiali
 ```bash
 kubectl scale deployment kiali -n istio-system --replicas=1
+```
+
+#### 7. Restart CS Model Service
+```bash
+kubectl scale deployment monitoring-services-cs-model -n monitoring --replicas=1
 ```
 
 ### Verify Services Are Running
@@ -631,28 +714,33 @@ kubectl scale daemonset -n monitoring --all --replicas=1
 helm uninstall kiali --namespace istio-system
 ```
 
-#### 2. Uninstall Vector
+#### 2. Uninstall CS Model Service
+```bash
+helm uninstall monitoring-services --namespace monitoring
+```
+
+#### 3. Uninstall Vector
 ```bash
 helm uninstall vector --namespace monitoring
 ```
 
-#### 3. Uninstall Loki
+#### 4. Uninstall Loki
 ```bash
 helm uninstall loki --namespace monitoring
 ```
 
-#### 4. Uninstall Prometheus Stack
+#### 5. Uninstall Prometheus Stack
 ```bash
 helm uninstall prometheus --namespace monitoring
 ```
 
-#### 5. Remove Bookinfo Applications
+#### 6. Remove Bookinfo Applications
 ```bash
 kubectl delete -f ./istio-1.xx.x/samples/bookinfo/networking/bookinfo-gateway.yaml -n target-services
 kubectl delete -f ./istio-1.xx.x/samples/bookinfo/platform/kube/bookinfo.yaml -n target-services
 ```
 
-#### 6. Uninstall Istio
+#### 7. Uninstall Istio
 ```bash
 # Remove Istio operator resources
 istioctl uninstall --purge
@@ -661,7 +749,7 @@ istioctl uninstall --purge
 kubectl delete namespace istio-system
 ```
 
-#### 7. Delete Namespaces
+#### 8. Delete Namespaces
 ```bash
 kubectl delete namespace target-services monitoring
 ```
@@ -718,15 +806,20 @@ helm install prometheus prometheus-community/kube-prometheus-stack \
 kubectl apply -f ./istio-1.xx.x/samples/addons/extras/prometheus-operator.yaml
 
 # 6. Install Loki
-helm install loki grafana/loki --namespace monitoring -f loki-single.yaml
+helm install loki grafana/loki --namespace monitoring -f helm/loki/values.yaml
 
 # 7. Install Vector
-helm install vector vector/vector --namespace monitoring -f vector-values.yaml
+helm install vector vector/vector --namespace monitoring -f helm/vector/values.yaml
 
-# 8. Install Kiali
-helm install kiali kiali/kiali-server --namespace istio-system -f kiali-values.yaml
+# 8. Install CS Model Service
+cd helm/monitoring-services
+helm install monitoring-services . --namespace monitoring
+cd ../..
 
-# 9. Launch services
+# 9. Install Kiali
+helm install kiali kiali/kiali-server --namespace istio-system -f helm/kiali/values.yaml
+
+# 10. Launch services
 kubectl port-forward --namespace monitoring svc/prometheus-grafana 8080:80 &
 minikube tunnel &
 istioctl dashboard kiali &
