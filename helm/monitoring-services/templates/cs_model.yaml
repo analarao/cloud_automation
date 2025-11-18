@@ -1,17 +1,17 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}-python-app
+  name: {{ .Release.Name }}-cs-model
   namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: {{ .Release.Name }}-python-app
+      app: {{ .Release.Name }}-cs-model
   template:
     metadata:
       labels:
-        app: {{ .Release.Name }}-python-app
+        app: {{ .Release.Name }}-cs-model
     spec:
       containers:
       - name: cs-model
