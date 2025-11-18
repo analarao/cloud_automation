@@ -1,0 +1,17 @@
+# Path: ./grafana/provisioning/datasources/alertmanager.yml
+apiVersion: 1
+
+datasources:
+  - name: Alertmanager
+    type: prometheus
+    access: proxy
+    orgId: 1
+    # Use the internal service name and port for Alertmanager
+    url: http://cr-alertmanager:9093/api/v2
+    isDefault: false
+    version: 1
+    editable: false
+    jsonData:
+      # This tells Grafana how to connect to Alertmanager
+      manageAlerts: true
+      alertmanagerUID: 'ALERTMANAGER_PROVISIONED_UID'

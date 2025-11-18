@@ -1,0 +1,5 @@
+requests==2.31.0
+sentence-transformers==2.7.0
+torch
+numpy==1.26.4
+pandas==2.2.0

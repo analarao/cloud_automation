@@ -1,0 +1,16 @@
+# alertmanager/alertmanager.yml
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'job']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'cb-webhook'
+
+receivers:
+  - name: 'cb-webhook'
+    webhook_configs:
+      - url: 'http://cb-mock-api:5001/api/v1/alert' # CB's listening API
+        send_resolved: true
