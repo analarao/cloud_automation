@@ -22,3 +22,5 @@ COPY cs_model_service.py .
 COPY cb_mock_alert_sender.py .
 
 EXPOSE 9001
+
+CMD ["python", "cs_model_service.py"]
