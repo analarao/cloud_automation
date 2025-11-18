@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-python-app
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-python-app
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-python-app
+    spec:
+      containers:
+      - name: cs-model
+        # Image is built from values.yaml
+        image: "{{ .Values.pythonApp.image }}:{{ .Values.pythonApp.tag }}"
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            # References the name of the ConfigMap created above
+            name: {{ .Release.Name }}-service-urls

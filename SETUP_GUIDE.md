@@ -477,6 +477,7 @@ This command runs in the foreground. Open a new terminal for the commands below.
 |---------|----------------------|-------------|----------------|
 | **Grafana** | `kubectl port-forward -n monitoring svc/prometheus-grafana 8080:80` | http://localhost:8080 | admin / *[see secret]* |
 | **Prometheus** | `kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090` | http://localhost:9090 | N/A (no auth) |
+| **Alertmanager** | `kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-alertmanager 9093:9093` | http://localhost:9093 | N/A (no auth) |
 | **Loki** | `kubectl port-forward -n monitoring svc/loki 3100:3100` | http://localhost:3100/loki/api/v1/query | N/A (API only) |
 | **Kiali** | `istioctl dashboard kiali` | http://localhost:20001/kiali | *[bearer token]* |
 | **Bookinfo** | `kubectl port-forward -n target-services svc/productpage 9080:9080` | http://localhost:9080/productpage | N/A |
@@ -492,10 +493,13 @@ kubectl port-forward --namespace monitoring svc/prometheus-grafana 8080:80
 # Terminal 2: Prometheus
 kubectl port-forward --namespace monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
 
-# Terminal 3: Loki
+# Terminal 3: Alertmanager
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-alertmanager 9093:9093
+
+# Terminal 4: Loki
 kubectl port-forward -n monitoring svc/loki 3100:3100
 
-# Terminal 4: Bookinfo (optional)
+# Terminal 5: Bookinfo (optional)
 kubectl port-forward -n target-services svc/productpage 9080:9080
 ```
 
@@ -505,6 +509,7 @@ Or use background processes:
 # Run all port-forwards in background
 kubectl port-forward --namespace monitoring svc/prometheus-grafana 8080:80 &
 kubectl port-forward --namespace monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090 &
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-alertmanager 9093:9093 &
 kubectl port-forward -n monitoring svc/loki 3100:3100 &
 istioctl dashboard kiali &  # Kiali also runs in background
 ```
