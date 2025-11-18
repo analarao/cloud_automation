@@ -330,6 +330,25 @@ kubectl get prometheus -n monitoring
 kubectl get servicemonitor -n monitoring
 ```
 
+#### Apply Alert Rules
+```bash
+# Apply alert rules for target services (Bookinfo apps)
+kubectl apply -f ./prometheus/alerts.yaml -n monitoring
+
+# Apply alert rules for CS Model service
+kubectl apply -f ./prometheus/cs_rules.yml -n monitoring
+```
+
+**Verify Alert Rules Are Loaded:**
+```bash
+# Check if PrometheusRule CRDs were created
+kubectl get prometheusrules -n monitoring
+
+# Access Prometheus UI and verify alerts are listed
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
+# Open http://localhost:9090/alerts to see all configured alerts
+```
+
 ---
 
 ### 3. Grafana (Dashboards & Visualization)
@@ -804,6 +823,10 @@ helm install prometheus prometheus-community/kube-prometheus-stack \
   --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false
 
 kubectl apply -f ./istio-1.xx.x/samples/addons/extras/prometheus-operator.yaml
+
+# Apply alert rules
+kubectl apply -f ./prometheus/alerts.yaml -n monitoring
+kubectl apply -f ./prometheus/cs_rules.yml -n monitoring
 
 # 6. Install Loki
 helm install loki grafana/loki --namespace monitoring -f helm/loki/values.yaml
