@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # {{ .Release.Name }} is a built-in Helm variable (e.g., "my-release")
+  name: {{ .Release.Name }}-service-urls
+  # {{ .Release.Namespace }} ensures this is installed in the correct namespace
+  namespace: {{ .Release.Namespace }}
+data:
+  # The URLs are built dynamically using Go template syntax
+  PROMETHEUS_URL: "http://{{ .Values.services.prometheus.host }}:{{ .Values.services.prometheus.port }}"
+  GRAFANA_URL: "http://{{ .Values.services.grafana.host }}:{{ .Values.services.grafana.port }}"
+  LOKI_URL: "http://{{ .Values.services.loki.host }}:{{ .Values.services.loki.port }}"
+  ALERTMANAGER_URL: "http://{{ .Values.services.alertmanager.host }}:{{ .Values.services.alertmanager.port }}{{ .Values.services.alertmanager.extras }}" 

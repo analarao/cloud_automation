@@ -12,7 +12,7 @@ from prometheus_client import Gauge, start_http_server
 
 # --- Configuration ---
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL")
-ALERTMANAGER_URL = os.environ.get("CB_API_URL") 
+ALERTMANAGER_URL = os.environ.get("ALERTMANAGER_URL") 
 PREDICTION_INTERVAL_MIN = 5 # Run prediction every 5 minutes
 PREDICT_METRIC = 'rate(node_cpu_seconds_total{mode="user"}[5m])'
 SLO_THRESHOLD = 0.01 # If user CPU usage > 50% in the next 15 min, alert.
