@@ -24,10 +24,3 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
      - targets: ['cs-ml-service:8000'] # Assuming the ML service exposes health metrics on 8000
-
-
-  - job_name: 'cs_predictions_metrics'
-    metrics_path: /metrics 
-    static_configs:
-    #testing
-      - targets: ['cs-ml-service:9001']

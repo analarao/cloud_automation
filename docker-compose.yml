@@ -72,11 +72,13 @@ services:
 
   # --- CB (Container-Brain) Mock: Alert Reception/Decision Endpoint ---
   cb-mock-api:
-    build: ./cs_container # Reusing the cs_container image for simplicity
-    container_name: cb-mock-api
-    command: python cb_mock_alert_sender.py # Run the mock receiver
+    build: ./cs_container
+    container_name: cb-mock-alert-sender
+    command: python -u cb_mock_alert_sender.py
     ports:
-      - "5001:5001" # Port to receive alerts
+      - 5001:5001 # Expose for external access/testing
+    networks:
+      - default # Port to receive alerts
 
 volumes:
   prometheus_data: {}
