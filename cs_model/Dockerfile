@@ -14,11 +14,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 3. Copy requirements and install Python packages
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements_cs_model.txt .
+RUN pip install --no-cache-dir -r requirements_cs_model.txt
 
 # 4. Copy the Python scripts
-COPY ml_model_service.py .
+COPY cs_model_service.py .
 COPY cb_mock_alert_sender.py .
 
 EXPOSE 9001
+
+CMD ["python", "cs_model_service.py"]
