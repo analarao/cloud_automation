@@ -1,4 +1,4 @@
-# cs_container/ml_model_service.py
+# cs_model/cs_model_service.py
 import os
 import time
 import json
@@ -11,8 +11,8 @@ from datetime import datetime, timedelta
 from prometheus_client import Gauge, start_http_server
 
 # --- Configuration ---
-PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
-ALERTMANAGER_URL = os.environ.get("CB_API_URL", "http://cr-alertmanager:9093/api/v2/alerts") 
+PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL")
+ALERTMANAGER_URL = os.environ.get("ALERTMANAGER_URL") 
 PREDICTION_INTERVAL_MIN = 5 # Run prediction every 5 minutes
 PREDICT_METRIC = 'rate(node_cpu_seconds_total{mode="user"}[5m])'
 SLO_THRESHOLD = 0.01 # If user CPU usage > 50% in the next 15 min, alert.
@@ -20,7 +20,23 @@ SLO_THRESHOLD = 0.01 # If user CPU usage > 50% in the next 15 min, alert.
 ML_EXPORTER_PORT = 9001 
 
 # --- Components ---
-prom = PrometheusConnect(url=PROMETHEUS_URL, disable_ssl=True)
+# Initialize prometheus connection object (will connect lazily in run_prediction_cycle)
+prom = None
+
+# --- Helper function to initialize Prometheus connection ---
+def get_prometheus_client():
+    """Initialize and return Prometheus client, with error handling."""
+    global prom
+    if prom is None:
+        try:
+            prom = PrometheusConnect(url=PROMETHEUS_URL, disable_ssl=True)
+            print(f"✓ Connected to Prometheus at {PROMETHEUS_URL}")
+            return prom
+        except Exception as e:
+            print(f"✗ Failed to connect to Prometheus: {e}")
+            return None
+    return prom
+
 # --- ADDED: Prometheus Gauges for Exposing Metrics ---
 # Gauge 1: The predicted metric value itself
 PREDICTED_CPU_GAUGE = Gauge(
@@ -70,6 +86,10 @@ def generate_and_send_alert(predicted_value: float):
     """
     Generates the Alertmanager V2 payload and sends the alert directly.
     """
+    if ALERTMANAGER_URL is None:
+        print(f"   (!) Alert generation skipped: ALERTMANAGER_URL not configured")
+        return
+    
     # ALERTMANAGER V2 API PAYLOAD
     payload = [{
         "labels": {
@@ -103,12 +123,20 @@ def run_prediction_cycle():
     prediction_metric_name = "node_cpu_user_rate"
     
     try:
+        # Get Prometheus client (lazy initialization)
+        prom_client = get_prometheus_client()
+        if prom_client is None:
+            print("   (i) Prometheus unavailable. Retrying on next cycle.")
+            PREDICTED_CPU_GAUGE.labels(instance=target_instance, target_metric=prediction_metric_name).set(0.0)
+            SLO_STATUS_GAUGE.labels(instance=target_instance, slo_threshold=SLO_THRESHOLD).set(0)
+            return
+        
         # Query last 4 hours of data from CR (Prometheus)
         end_time = datetime.now()
         start_time = end_time - timedelta(hours=4)
         
         # Pull data for the 'user' CPU usage
-        data = prom.custom_query_range(
+        data = prom_client.custom_query_range(
             query=PREDICT_METRIC,
             start_time=start_time,
             end_time=end_time,
@@ -153,13 +181,28 @@ def run_prediction_cycle():
         # Optionally set a gauge for the service health error here
 
 if __name__ == "__main__":
-    print(f"CS ML Service started. Querying Prometheus at {PROMETHEUS_URL}")
-    
-    # --- CRITICAL FIX: Start the Prometheus HTTP server in the background ---
-    # Use addr='0.0.0.0' to ensure it's accessible from other containers (like Prometheus)
-    start_http_server(ML_EXPORTER_PORT, addr='0.0.0.0')
-    print(f"Metrics exposed on 0.0.0.0:{ML_EXPORTER_PORT}")
-    
-    while True:
-        run_prediction_cycle()
-        time.sleep(PREDICTION_INTERVAL_MIN * 60)
+    try:
+        print("=" * 80)
+        print("CS ML Service starting...")
+        print(f"PROMETHEUS_URL: {PROMETHEUS_URL}")
+        print(f"ALERTMANAGER_URL: {ALERTMANAGER_URL}")
+        print(f"PREDICTION_INTERVAL_MIN: {PREDICTION_INTERVAL_MIN}")
+        print(f"ML_EXPORTER_PORT: {ML_EXPORTER_PORT}")
+        print("=" * 80)
+        
+        # --- CRITICAL FIX: Start the Prometheus HTTP server in the background ---
+        # Use addr='0.0.0.0' to ensure it's accessible from other containers (like Prometheus)
+        print("Starting HTTP server for metrics exposure...")
+        start_http_server(ML_EXPORTER_PORT, addr='0.0.0.0')
+        print(f"✓ Metrics exposed on 0.0.0.0:{ML_EXPORTER_PORT}")
+        print(f"✓ CS ML Service started successfully. Entering prediction cycle...")
+        print("=" * 80)
+        
+        while True:
+            run_prediction_cycle()
+            time.sleep(PREDICTION_INTERVAL_MIN * 60)
+    except Exception as e:
+        print(f"FATAL ERROR in __main__: {e}")
+        import traceback
+        traceback.print_exc()
+        raise

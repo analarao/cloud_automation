@@ -1,0 +1,31 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bookinfo-custom-rules
+  namespace: monitoring
+  labels:
+    # This is the same "magic hook" to link it to our Prometheus
+    release: prometheus
+spec:
+  groups:
+  - name: target-services.rules
+    rules:
+    # This is our new custom alert
+    - alert: BookinfoReviewsDown
+      
+      # This is the PromQL query. 
+      # "up{...} == 0" means the service is down.
+      expr: (sum(up{pod=~"reviews-v.*", namespace="target-services", job="istio-system/envoy-stats-monitor"}) or vector(0)) == 0
+      
+      # How long the app must be down before the alert fires.
+      # This prevents "flapping" (false alarms).
+      for: 10s
+      
+      # Labels to add to the alert. Used by Alertmanager to route it.
+      labels:
+        severity: critical
+      
+      # The human-readable message.
+      annotations:
+        summary: "Bookinfo 'reviews' service is down"
+        description: "No instances of the 'reviews' service in the 'target-services' namespace are reachable."

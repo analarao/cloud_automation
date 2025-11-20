@@ -1,0 +1,22 @@
+# This is your single source of truth for all variables
+
+# Define all service connection details here
+services:
+  alertmanager:
+    host: "prometheus-kube-prometheus-alertmanager"
+    port: "9093"
+    extras: "/api/v2/alerts"
+  prometheus:
+    host: "prometheus-kube-prometheus-prometheus"
+    port: "9090"
+  grafana:
+    host: "prometheus-grafana"
+    port: "3000"
+  loki:
+    host: "loki"
+    port: "3100"
+
+# We can also control your python app from here
+pythonApp:
+  image: "chandrashekar316/capstone"
+  tag: "cs_model"

@@ -1,0 +1,45 @@
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  storage:
+    # Use local filesystem, not object storage
+    type: filesystem
+  schemaConfig:
+    configs:
+      - from: "2024-01-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+  rulerConfig:
+    storage:
+      type: local
+      local:
+        directory: /rules
+    rule_path: /tmp/rules
+
+singleBinary:
+  replicas: 1
+
+# Persist data so pods can restart without losing chunks
+persistence:
+  enabled: true
+  size: 10Gi
+  # storageClass: <your-storage-class> # (optional)
+
+# Don’t spin up read/write/backend components (validation complains otherwise)
+read:
+  replicas: 0
+write:
+  replicas: 0
+backend:
+  replicas: 0
+
+# Optional: serviceMonitor if you have kube-prometheus-stack
+serviceMonitor:
+  enabled: true  
