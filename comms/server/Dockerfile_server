@@ -3,7 +3,7 @@ FROM python:3.10-slim
 WORKDIR /app
 
 COPY requirements.txt /app/
-COPY server_app.py /app/
+COPY ./server/server_app.py /app/
 COPY protofile_pb2_grpc.py /app/
 COPY protofile_pb2.py /app/
 COPY protofile_pb2.pyi /app/

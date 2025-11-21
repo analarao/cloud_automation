@@ -13,7 +13,7 @@ def run():
     # used in circumstances in which the with statement does not fit the needs
     # of the code.
     print("Will try to get users ...")
-    with grpc.insecure_channel("localhost:50051") as channel:
+    with grpc.insecure_channel("grpc-server-service.target-services:60065") as channel:
         stub = protofile_pb2_grpc.UsersStub(channel)
         response = stub.GetUsers(protofile_pb2.GetUsersRequest())
 

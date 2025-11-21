@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  name: grpc-server-deployment
+  namespace: target-services
+  labels:
+    app: grpc-server
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grpc-server
+  
+
+  template:
+    metadata:
+      labels:
+        app: grpc-server
+    spec:
+      containers:
+
+        - name: test-server
+          image: chandrashekar316/capstone:grpc_server
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 60065
+
+
+

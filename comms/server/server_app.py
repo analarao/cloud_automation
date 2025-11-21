@@ -26,7 +26,7 @@ class Users(protofile_pb2_grpc.UsersServicer):
 
 
 def serve():
-    port = "50051"
+    port = "60065"
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     protofile_pb2_grpc.add_UsersServicer_to_server(Users(), server)
     server.add_insecure_port("[::]:" + port)
