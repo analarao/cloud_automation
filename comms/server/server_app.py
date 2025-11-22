@@ -2,12 +2,15 @@
 
 from concurrent import futures
 import logging
-
+import os
 import grpc
 import protofile_pb2
 import protofile_pb2_grpc
 
 
+print(os.environ.get( "GRPC_SERVER_PORT"))
+
+      
 class Users(protofile_pb2_grpc.UsersServicer):
     def GetUsers(self, request, context):
         return protofile_pb2.GetUsersResponse(
@@ -26,7 +29,8 @@ class Users(protofile_pb2_grpc.UsersServicer):
 
 
 def serve():
-    port = "60065"
+    port = f'{os.environ.get( "GRPC_SERVER_PORT" )}'
+
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     protofile_pb2_grpc.add_UsersServicer_to_server(Users(), server)
     server.add_insecure_port("[::]:" + port)

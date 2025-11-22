@@ -2,18 +2,23 @@
 from __future__ import print_function
 
 import logging
-
+import os
 import grpc
 import protofile_pb2
 import protofile_pb2_grpc
 
+GRPC_SERVER_NAMESPACE = os.environ.get("GRPC_SERVER_NAMESPACE")
+GRPC_SERVER_PORT = os.environ.get("GRPC_SERVER_PORT")
 
+print(GRPC_SERVER_NAMESPACE)
+
+print(GRPC_SERVER_PORT)
 def run():
     # NOTE(gRPC Python Team): .close() is possible on a channel and should be
     # used in circumstances in which the with statement does not fit the needs
     # of the code.
     print("Will try to get users ...")
-    with grpc.insecure_channel("grpc-server-service.target-services:60065") as channel:
+    with grpc.insecure_channel(f"grpc-server-service.{GRPC_SERVER_NAMESPACE}:{GRPC_SERVER_PORT}") as channel:
         stub = protofile_pb2_grpc.UsersStub(channel)
         response = stub.GetUsers(protofile_pb2.GetUsersRequest())
 
