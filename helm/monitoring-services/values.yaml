@@ -16,7 +16,29 @@ services:
     host: "loki"
     port: "3100"
 
-# We can also control your python app from here
-pythonApp:
-  image: "chandrashekar316/capstone"
-  tag: "cs_model"
+  
+
+csModel:
+  enabled: true
+  image: chandrashekar316/capstone:cs_model
+  deployment:
+    name: cs-model-deployment  
+  service:
+    name: cs-model-service
+    port: 9001
+
+grpcServer:
+  enabled: true
+  image: chandrashekar316/capstone:grpc_server
+  deployment:
+    name: grpc-server-deployment
+  service:
+    name: grpc-server-service
+    port: 60065
+
+grpcClient:
+  enabled: true
+  image: chandrashekar316/capstone:grpc_client
+  deployment:
+    name: grpc-client-deployment
+

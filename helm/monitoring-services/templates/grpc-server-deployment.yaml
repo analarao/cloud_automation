@@ -1,0 +1,33 @@
+{{- if .Values.grpcServer.enabled }}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.grpcServer.deployment.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: grpc-server
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grpc-server
+  
+  template:
+    metadata:
+      labels:
+        app: grpc-server
+
+    spec:
+      containers:
+        - name: grpc-server
+          image: {{ .Values.grpcServer.image }}
+          imagePullPolicy: Always
+          envFrom:
+          - configMapRef:
+              name: {{ .Release.Name }}-service-urls
+          ports:
+            - containerPort: {{ .Values.grpcServer.service.port }}
+
+{{- end }}

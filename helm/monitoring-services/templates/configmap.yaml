@@ -11,3 +11,5 @@ data:
   GRAFANA_URL: "http://{{ .Values.services.grafana.host }}:{{ .Values.services.grafana.port }}"
   LOKI_URL: "http://{{ .Values.services.loki.host }}:{{ .Values.services.loki.port }}"
   ALERTMANAGER_URL: "http://{{ .Values.services.alertmanager.host }}:{{ .Values.services.alertmanager.port }}{{ .Values.services.alertmanager.extras }}" 
+  GRPC_SERVER_PORT: "{{ .Values.grpcServer.service.port }}"
+  GRPC_SERVER_NAMESPACE: "{{ .Release.Namespace }}"

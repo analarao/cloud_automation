@@ -1,4 +1,4 @@
-# cs_container/Dockerfile
+# chandrashekar316/capstone:cs_model
 
 # 1. Use a standard Debian-based Python image (UPGRADED to Bullseye/Debian 11)
 FROM python:3.10-slim-bullseye 

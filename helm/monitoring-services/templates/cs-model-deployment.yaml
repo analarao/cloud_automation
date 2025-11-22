@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}-cs-model
+  name: {{ .Values.csModel.deployment.name }}
   namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: {{ .Release.Name }}-cs-model
+      app: cs-model
   template:
     metadata:
       labels:
-        app: {{ .Release.Name }}-cs-model
+        app: cs-model
     spec:
       containers:
       - name: cs-model
         # Image is built from values.yaml
-        image: "{{ .Values.pythonApp.image }}:{{ .Values.pythonApp.tag }}"
+        image: "{{ .Values.csModel.image}}"
         imagePullPolicy: IfNotPresent
         command: ["python", "cs_model_service.py"]
         ports:

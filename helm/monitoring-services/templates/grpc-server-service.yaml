@@ -1,0 +1,21 @@
+{{- if .Values.grpcServer.enabled }}
+
+apiVersion: v1
+kind: Service 
+
+metadata:
+  name: grpc-server-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: grpc-server
+  
+spec:
+  type: ClusterIP
+  selector: 
+    app: grpc-server
+
+  ports:
+    - name: grpc-server-service
+      port: {{ .Values.grpcServer.service.port }}
+
+{{- end }}

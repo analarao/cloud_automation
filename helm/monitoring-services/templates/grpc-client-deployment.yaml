@@ -1,0 +1,32 @@
+{{- if .Values.grpcClient.enabled }}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.grpcClient.deployment.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: grpc-client
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels: 
+      app: grpc-client
+
+  template:
+    metadata:
+      labels: 
+        app: grpc-client
+
+    spec:
+      containers: 
+        - name: grpc-client
+          image: {{ .Values.grpcClient.image }}
+          imagePullPolicy: Always
+          envFrom:
+          - configMapRef:
+              name: {{ .Release.Name }}-service-urls
+          command: ["sh", "-c"]
+          args: ["sleep infinity"]
+{{- end }}
