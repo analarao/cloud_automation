@@ -17,7 +17,7 @@ spec:
       - name: cs-model
         # Image is built from values.yaml
         image: "{{ .Values.csModel.image}}"
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         command: ["python", "cs_model_service.py"]
         ports:
         - containerPort: 9001

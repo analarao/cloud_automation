@@ -18,10 +18,15 @@ groups:
     for: 1m
     labels:
       severity: critical
-      team: mlops
+      alert_type: SLO_PREDICTION
+      source: CS_ML_Service
+      # Inherit target_pod, target_namespace, target_container, target_app from metric labels
     annotations:
-      summary: "Predicted CPU rate will breach SLO in 15 minutes"
-      description: "The CS ML service predicts the user CPU rate for instance {{ $labels.instance }} will exceed the SLO threshold (0.01) within the next 15 minutes. Current predicted value: {{ $value }}"
+      summary: "Predicted CPU breach for pod {{ $labels.target_pod }} in namespace {{ $labels.target_namespace }}"
+      description: "The CS ML service predicts CPU usage will exceed SLO threshold (0.01) within 15 minutes. Pod: {{ $labels.target_pod }}, App: {{ $labels.target_app }}, Container: {{ $labels.target_container }}, Current predicted value: {{ $value | humanizePercentage }}"
+      predicted_value: "{{ $value }}"
+      threshold: "0.01"
+      # Note: Topology info will be fetched by Alertmanager webhook receiver or CB service
   
 # === B. CS: ANOMALY DETECTION (Statistical/Z-Score) BASES ===
 - name: statistical_anomaly_baselines

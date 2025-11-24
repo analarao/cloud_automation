@@ -14,8 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 3. Copy requirements and install Python packages
-COPY requirements_cs_model.txt .
-RUN pip install --no-cache-dir -r requirements_cs_model.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # 4. Copy the Python scripts
 COPY cs_model_service.py .

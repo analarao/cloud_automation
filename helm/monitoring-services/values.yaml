@@ -3,17 +3,17 @@
 # Define all service connection details here
 services:
   alertmanager:
-    host: "prometheus-kube-prometheus-alertmanager"
+    host: "prometheus-kube-prometheus-alertmanager.monitoring.svc.cluster.local"
     port: "9093"
     extras: "/api/v2/alerts"
   prometheus:
-    host: "prometheus-kube-prometheus-prometheus"
+    host: "prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local"
     port: "9090"
   grafana:
-    host: "prometheus-grafana"
+    host: "prometheus-grafana.monitoring.svc.cluster.local"
     port: "3000"
   loki:
-    host: "loki"
+    host: "loki.monitoring.svc.cluster.local"
     port: "3100"
 
   
