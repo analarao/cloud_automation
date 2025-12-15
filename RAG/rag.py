@@ -4,191 +4,168 @@ import sys
 import numpy as np
 import re
 import os
-import pickle
 from dotenv import load_dotenv
 
 # --- 1. Load Environment Variables ---
 load_dotenv()
 
-# --- 2. Import ML Libraries ---
+# --- 2. Import Libraries ---
 try:
-    from sentence_transformers import SentenceTransformer, util
-    import torch
+    import chromadb # The Vector Database
+    from sentence_transformers import SentenceTransformer
 except ImportError:
     print("Error: Required libraries not found.")
     print("Please install them by running: pip install -r requirements.txt")
     sys.exit(1)
 
-# --- 3. Define File Paths ---
+# --- 3. Define Paths ---
 LOG_FILE = "diffs.log"
-EMBEDDING_CACHE = "embeddings.pkl"
+CHROMA_PATH = "./chroma_db" # Folder where the DB will live
 
-# --- 4. Parse the Git Log File ---
-#
-# --- REGEX FIX EXPLAINED ---
-# We use '\s+?' (non-greedy whitespace) between MESSAGE and the separator lines.
-# This handles cases where there is 1 newline, 2 newlines, or weird spacing.
-#
+# --- 4. Initialize Vector Database ---
+print(f"-> Connecting to ChromaDB at '{CHROMA_PATH}'...")
+chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
+
+# Create or get a collection. Think of this as a "table" for your vectors.
+# We call it "git_commits".
+collection = chroma_client.get_or_create_collection(name="git_commits")
+
+
+# --- 5. Parsing Function ---
+# Robust regex from our previous fix
 GIT_LOG_PATTERN = re.compile(
-    r"COMMIT: (.*?)\n"           # Group 1: Commit Hash
-    r"AUTHOR: (.*?)\n"          # Group 2: Author
-    r"DATE:\s+(.*?)\n"          # Group 3: Date
-    r"MESSAGE: (.*?)"           # Group 4: Message content
-    r"\n-{10,}\n+"              # Separator: Newline, 10+ dashes, newlines
-    r"(.*)",                    # Group 5: The rest (Diff data)
-    re.DOTALL                   # DOTALL allows (.) to match newlines inside the message/diff
+    r"COMMIT: (.*?)\n"
+    r"AUTHOR: (.*?)\n"
+    r"DATE:\s+(.*?)\n"
+    r"MESSAGE: (.*?)"
+    r"\n-{10,}\n+"
+    r"(.*)",
+    re.DOTALL
 )
 
-corpus = []
-metadata = []
+def parse_log_file(file_path):
+    print(f"-> Parsing '{file_path}'...")
+    ids = []
+    documents = []
+    metadatas = []
 
-print(f"-> Loading and parsing '{LOG_FILE}'...")
-try:
-    with open(LOG_FILE, 'r', encoding='utf-8', errors='ignore') as f:
-        full_log_content = f.read()
-    
-    # Split by the main separator
-    commit_blocks = full_log_content.split("======================================================================")
-    
-    for block in commit_blocks:
-        if not block.strip():
-            continue
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            full_log_content = f.read()
+        
+        commit_blocks = full_log_content.split("======================================================================")
+        
+        for block in commit_blocks:
+            if not block.strip(): continue
             
-        match = GIT_LOG_PATTERN.search(block)
-        if match:
-            commit, author, date, message, diff_data = match.groups()
-            
-            commit = commit.strip()
-            author = author.strip()
-            date = date.strip()
-            message = message.strip()
-            diff_data = diff_data.strip()
-            
-            # Create the comprehensive document for searching
-            searchable_text = (
-                f"Commit: {commit}\n"
-                f"Author: {author}\n"
-                f"Date: {date}\n"
-                f"Message: {message}\n\n"
-                f"Changes:\n{diff_data}"
-            )
-            corpus.append(searchable_text)
-            
-            metadata.append({
-                "commit": commit,
-                "author": author,
-                "date": date,
-                "message": message,
-            })
-    
-    if not corpus:
-        print(f"Fatal Error: Could not parse any commit blocks from '{LOG_FILE}'.")
-        print("Please check the regex pattern.")
+            match = GIT_LOG_PATTERN.search(block)
+            if match:
+                commit, author, date, message, diff_data = match.groups()
+                
+                # The searchable text
+                text = (
+                    f"Commit: {commit.strip()}\n"
+                    f"Author: {author.strip()}\n"
+                    f"Date: {date.strip()}\n"
+                    f"Message: {message.strip()}\n\n"
+                    f"Changes:\n{diff_data.strip()}"
+                )
+                
+                ids.append(commit.strip()) # Use Hash as Unique ID
+                documents.append(text)
+                metadatas.append({
+                    "commit": commit.strip(),
+                    "author": author.strip(),
+                    "date": date.strip(),
+                    "message": message.strip()
+                })
+        return ids, documents, metadatas
+        
+    except FileNotFoundError:
+        print(f"Error: Could not find '{file_path}'")
         sys.exit(1)
-        
-    print(f"-> Successfully parsed {len(corpus)} commits.")
 
-except FileNotFoundError:
-    print(f"Error: Could not find '{LOG_FILE}'.")
-    sys.exit(1)
-except Exception as e:
-    print(f"Error parsing log file: {e}")
-    sys.exit(1)
+# --- 6. Indexing (Populate the DB) ---
+# Check if DB is already populated
+if collection.count() == 0:
+    print("-> Collection is empty. Indexing data...")
+    
+    # 1. Parse Data
+    ids, documents, metadatas = parse_log_file(LOG_FILE)
+    if not ids:
+        print("Fatal Error: No commits found to index.")
+        sys.exit(1)
 
-
-# --- 5. Load Embedding Model ---
-print("-> Loading embedding model (all-MiniLM-L6-v2)...")
-try:
-    embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    embedding_model.to(device)
-    print(f"-> Model loaded successfully on {device}.")
-except Exception as e:
-    print(f"Error loading SentenceTransformer model: {e}")
-    sys.exit(1)
-
-# --- 6. Indexing with Caching ---
-# We perform a check: If the cache exists but has a different number of items
-# than our parsed corpus, we assume the log file changed and re-index.
-needs_indexing = True
-
-if os.path.exists(EMBEDDING_CACHE):
-    print(f"-> Found cache file '{EMBEDDING_CACHE}'. Verifying...")
-    try:
-        with open(EMBEDDING_CACHE, 'rb') as f:
-            chunk_embeddings = pickle.load(f)
-        
-        if len(chunk_embeddings) == len(corpus):
-            print("-> Cache verified. Loading embeddings...")
-            needs_indexing = False
-        else:
-            print(f"-> Cache mismatch ({len(chunk_embeddings)} embeddings vs {len(corpus)} commits). Re-indexing...")
-    except Exception as e:
-        print(f"-> Error reading cache: {e}. Re-indexing...")
-
-if needs_indexing:
-    print(f"-> Creating new embeddings for {len(corpus)} commits...")
-    try:
-        chunk_embeddings = embedding_model.encode(
-            corpus, 
-            convert_to_tensor=True, 
-            show_progress_bar=True
+    # 2. Load Embedding Model
+    print("-> Loading embedding model...")
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    
+    # 3. Generate Embeddings
+    print(f"-> Creating embeddings for {len(documents)} commits...")
+    embeddings = model.encode(documents).tolist() # Chroma expects simple lists, not numpy/torch tensors
+    
+    # 4. Add to ChromaDB
+    # Chroma handles the storage and indexing automatically
+    print("-> Saving to Vector Database...")
+    # Add in batches to avoid hitting limits
+    batch_size = 100
+    for i in range(0, len(ids), batch_size):
+        end = min(i + batch_size, len(ids))
+        collection.add(
+            ids=ids[i:end],
+            documents=documents[i:end],
+            embeddings=embeddings[i:end],
+            metadatas=metadatas[i:end]
         )
-        print("-> Indexing complete.")
-        
-        # Save to cache
-        with open(EMBEDDING_CACHE, 'wb') as f:
-            pickle.dump(chunk_embeddings, f)
-        print(f"-> Embeddings saved to '{EMBEDDING_CACHE}'.")
-        
-    except Exception as e:
-        print(f"Error during embedding: {e}")
-        sys.exit(1)
+    print("-> Indexing complete!")
+else:
+    print(f"-> Loaded {collection.count()} existing commits from Vector DB.")
+    # We still need the model for querying
+    print("-> Loading embedding model...")
+    model = SentenceTransformer('all-MiniLM-L6-v2')
 
-# --- 7. Retrieval System ---
+
+# --- 7. Retrieval System (Using Chroma) ---
 def retrieve_context(query, top_k=3):
     print(f"-> Embedding query: '{query}'")
-    query_embedding = embedding_model.encode(query, convert_to_tensor=True)
-    cos_scores = util.pytorch_cos_sim(query_embedding, chunk_embeddings)[0]
+    query_embedding = model.encode([query]).tolist()
     
-    # Get top results
-    top_results = torch.topk(cos_scores, k=min(top_k, len(corpus)))
+    # Query the DB
+    results = collection.query(
+        query_embeddings=query_embedding,
+        n_results=top_k
+    )
     
-    retrieved_contexts = []
-    for score, idx in zip(top_results[0], top_results[1]):
-        retrieved_contexts.append({
-            "score": score.item(),
-            "data": metadata[idx.item()]
+    # Chroma returns lists of lists (because you can provide multiple query embeddings)
+    # We flatten this to make it easier to work with
+    processed_results = []
+    for i in range(len(results['ids'][0])):
+        processed_results.append({
+            "score": results['distances'][0][i], # Chroma returns distance (lower is better)
+            "data": results['metadatas'][0][i]
         })
-    return retrieved_contexts
+        
+    return processed_results
 
 # --- 8. Generation System ---
 apiKey = os.getenv("GEMINI_API_KEY")
 if not apiKey:
-    print("\n" + "*"*50)
     print("WARNING: GEMINI_API_KEY not found in .env file.")
     sys.exit(1)
 
 apiUrl = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key={apiKey}"
 
 def generate_answer(query, context_list):
-    # Prepare context for LLM
-    context_str = "Here are the most relevant commits found in the log:\n\n"
+    context_str = "Here are the most relevant commits found:\n\n"
     for i, item in enumerate(context_list):
-        # Clean up message for display
-        msg_preview = item['data']['message'].replace('\n', ' ')[:200]
-        context_str += f"Commit {i+1} (Score: {item['score']:.2f}):\n"
-        context_str += f"Hash: {item['data']['commit']}\n"
-        context_str += f"Author: {item['data']['author']}\n"
+        context_str += f"Commit {i+1}:\n"
         context_str += f"Date: {item['data']['date']}\n"
+        context_str += f"Author: {item['data']['author']}\n"
         context_str += f"Message: {item['data']['message']}\n\n"
 
     prompt = f"""
     You are a software engineering assistant analyzing a git log.
     Based ONLY on the provided context, answer the user's question.
-    
-    If the user asks about a specific date, check the 'Date' fields in the context.
-    If the user asks about a version (like v2.32.4), check the 'Message' fields.
 
     Context:
     {context_str}
@@ -205,15 +182,13 @@ def generate_answer(query, context_list):
     try:
         response = requests.post(apiUrl, headers=headers, data=json.dumps(payload))
         response.raise_for_status()
-        result = response.json()
-        return result['candidates'][0]['content']['parts'][0]['text'].strip()
+        return response.json()['candidates'][0]['content']['parts'][0]['text'].strip()
     except Exception as e:
         return f"Error generating answer: {e}"
 
 # --- 9. Main Loop ---
 def main():
-    print(f"\n--- RAG on Git Diff Log (Final) ---")
-    print(f"Loaded {len(corpus)} commits.")
+    print("\n--- RAG with ChromaDB ---")
     print("Type 'quit' or 'exit' to stop.")
     
     while True:
@@ -228,7 +203,8 @@ def main():
             if contexts:
                 print(f"-> Found {len(contexts)} relevant commits.")
                 for i, item in enumerate(contexts):
-                    print(f"  {i+1}. [{item['data']['date'][:10]}] {item['data']['message'].splitlines()[0][:60]}...")
+                    msg_head = item['data']['message'].split('\n')[0][:60]
+                    print(f"  {i+1}. [{item['data']['date'][:10]}] {msg_head}...")
             
             print("-> Generating answer...")
             answer = generate_answer(query, contexts)
