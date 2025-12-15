@@ -117,9 +117,9 @@ minikube start \
 # --driver=docker   — Use Docker as the container runtime
 ```
 
-#### Start with GPU Support (For CB Model / vLLM)
+#### GPU Support (For CB Model / vLLM)
 
-If you need GPU acceleration (e.g., for the CB Model with vLLM), follow these additional steps.
+
 
 ##### 1. Install NVIDIA Driver (Fedora)
 
@@ -193,9 +193,6 @@ minikube delete
 
 # Start with GPU support using Docker driver
 minikube start \
-  --cpus=4 \
-  --memory=8192 \
-  --disk-size=30g \
   --driver=docker \
   --gpus=all
 ```
