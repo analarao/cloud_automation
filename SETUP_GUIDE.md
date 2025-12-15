@@ -136,46 +136,6 @@ kubectl cluster-info
 kubectl get pods -n kube-system
 ```
 
-### Enable Required Minikube Add-ons
-
-Minikube has built-in add-ons that enable additional functionality.
-
-#### Enable Metrics Server (for resource monitoring)
-```bash
-minikube addons enable metrics-server
-
-# Verify
-kubectl get deployment metrics-server -n kube-system
-```
-
-#### Enable Ingress Controller
-```bash
-minikube addons enable ingress
-
-# Verify
-kubectl get pods -n ingress-nginx
-```
-
-#### List All Available Add-ons
-```bash
-minikube addons list
-```
-
-### Access the Minikube Dashboard (Optional)
-
-Minikube includes a built-in Kubernetes dashboard for visual cluster management.
-
-```bash
-# Launch the dashboard in your browser
-minikube dashboard
-
-# This opens a web UI showing:
-# - All namespaces and resources
-# - Pods, services, deployments
-# - Resource usage and logs
-# - Configuration and settings
-```
-
 ### Useful Minikube Commands
 
 | Command | Purpose |
@@ -188,10 +148,6 @@ minikube dashboard
 | `minikube ip` | Get the IP address of Minikube |
 | `minikube ssh` | SSH into the Minikube VM |
 | `minikube logs` | View Minikube logs for debugging |
-| `minikube dashboard` | Open Kubernetes dashboard in browser |
-| `minikube addons list` | List all available add-ons |
-| `minikube addons enable <addon>` | Enable a specific add-on |
-| `minikube addons disable <addon>` | Disable a specific add-on |
 | `minikube tunnel` | Enable external access to LoadBalancer services |
 | `minikube docker-env` | Set Docker environment to use Minikube's Docker daemon |
 | `minikube mount <host-path>:<vm-path>` | Mount a directory from host into Minikube VM |
