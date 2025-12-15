@@ -117,6 +117,193 @@ minikube start \
 # --driver=docker   — Use Docker as the container runtime
 ```
 
+#### Start with GPU Support (For CB Model / vLLM)
+
+If you need GPU acceleration (e.g., for the CB Model with vLLM), follow these additional steps.
+
+##### 1. Install NVIDIA Driver (Fedora)
+
+```bash
+# Enable RPM Fusion repositories (if not already enabled)
+sudo dnf install -y https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
+sudo dnf install -y https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
+
+# Install NVIDIA driver
+sudo dnf install -y akmod-nvidia xorg-x11-drv-nvidia-cuda
+
+# Wait for kernel module to build (can take a few minutes)
+sudo akmods --force
+sudo dracut --force
+
+# Reboot to load the driver
+sudo reboot
+```
+
+After reboot, verify:
+```bash
+nvidia-smi
+```
+
+##### 2. Install NVIDIA Container Toolkit
+
+```bash
+# Add NVIDIA container toolkit repo
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | \
+  sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
+
+# Install the toolkit
+sudo dnf install -y nvidia-container-toolkit
+
+# Configure Docker to use NVIDIA runtime
+sudo nvidia-ctk runtime configure --runtime=docker --set-as-default
+sudo systemctl restart docker
+
+# Generate CDI specification (required for cgroups v2)
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+```
+
+##### 3. Fix Permissions (Fedora/SELinux)
+
+```bash
+# Enable container device access
+sudo setsebool -P container_use_devices on
+
+# Fix nvidia-caps directory permissions
+sudo chmod 755 /dev/nvidia-caps
+sudo chmod 666 /dev/nvidia-caps/nvidia-cap1
+sudo chmod 666 /dev/nvidia-caps/nvidia-cap2
+
+# Restart Docker
+sudo systemctl restart docker
+```
+
+##### 4. Verify Docker GPU Access
+
+```bash
+# Test WITHOUT --privileged (should work after above steps)
+docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
+```
+
+##### 5. Start Minikube with GPU
+
+```bash
+# Stop and delete existing minikube (if any)
+minikube stop
+minikube delete
+
+# Start with GPU support using Docker driver
+minikube start \
+  --cpus=4 \
+  --memory=8192 \
+  --disk-size=30g \
+  --driver=docker \
+  --gpus=all
+```
+
+##### 6. Install NVIDIA Device Plugin for Kubernetes
+
+```bash
+# Apply NVIDIA device plugin DaemonSet
+kubectl create -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.14.1/nvidia-device-plugin.yml
+
+# Wait for plugin to be ready
+kubectl get pods -n kube-system -l name=nvidia-device-plugin-ds -w
+
+# Verify GPU is detected in node capacity (should show "1")
+kubectl get nodes -o json | jq '.items[].status.allocatable["nvidia.com/gpu"]'
+```
+
+##### 7. Add GPU Label to Node
+
+```bash
+# Add the label required by GPU workloads
+kubectl label nodes minikube nvidia.com/gpu.present=true
+
+# Verify label was added
+kubectl get nodes --show-labels | grep nvidia
+```
+
+##### Verify GPU Setup Complete
+
+```bash
+# All checks should pass:
+nvidia-smi                                                                      # Host GPU works
+docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi       # Docker GPU works
+kubectl get nodes -o json | jq '.items[].status.allocatable["nvidia.com/gpu"]'  # K8s sees GPU
+kubectl get nodes --show-labels | grep nvidia                                   # GPU label present
+```
+
+##### GPU Troubleshooting
+
+**Issue: `Failed to initialize NVML: Insufficient Permissions`**
+
+```bash
+# Fix 1: Enable container device access
+sudo setsebool -P container_use_devices on
+
+# Fix 2: Fix nvidia-caps permissions
+sudo chmod 755 /dev/nvidia-caps
+sudo chmod 666 /dev/nvidia-caps/*
+
+# Fix 3: Regenerate CDI spec
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+sudo systemctl restart docker
+```
+
+**Issue: Works with `--privileged` but not without**
+
+SELinux is blocking access. Create a custom policy:
+
+```bash
+# Check what SELinux is blocking
+sudo ausearch -m avc -ts recent | grep nvidia
+
+# Create and install a custom SELinux module
+sudo ausearch -c 'nvidia' --raw | audit2allow -M nvidia-container
+sudo semodule -i nvidia-container.pp
+
+# Test again
+docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
+```
+
+**Issue: `nvidia-smi` not found or driver not loaded**
+
+```bash
+# Check if driver module is loaded
+lsmod | grep nvidia
+
+# If not, rebuild and reload
+sudo akmods --force
+sudo dracut --force
+sudo reboot
+```
+
+**Issue: Minikube doesn't see GPU**
+
+```bash
+# Ensure device plugin is running
+kubectl get pods -n kube-system -l name=nvidia-device-plugin-ds
+
+# Check device plugin logs
+kubectl logs -n kube-system -l name=nvidia-device-plugin-ds
+
+# Verify node capacity
+kubectl describe node minikube | grep -A5 "Capacity"
+```
+
+**Issue: Pod stuck in Pending with GPU request**
+
+```bash
+# Check if GPU label exists
+kubectl get nodes --show-labels | grep nvidia
+
+# Add label if missing
+kubectl label nodes minikube nvidia.com/gpu.present=true
+
+# Check node affinity in pod spec
+kubectl describe pod <pod-name> -n <namespace> | grep -A10 "Node-Selectors"
+```
+
 #### Verify Cluster Is Running
 ```bash
 # Check Minikube status
