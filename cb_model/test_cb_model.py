@@ -78,7 +78,7 @@ def test_simple_completion(stub):
         request = cb_model_pb2.CompletionRequest(
             prompt=prompt,
             max_tokens=100,
-            temperature=0.7,
+            temperature=0.0,
             request_id="test-simple-001",
             source="test_client"
         )

@@ -46,4 +46,6 @@ ENV CB_MAX_WORKERS=10
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
     CMD python -c "import grpc; ch = grpc.insecure_channel('localhost:50051'); grpc.channel_ready_future(ch).result(timeout=5)" || exit 1
 
+# Override the vllm entrypoint to run our custom server
+ENTRYPOINT []
 CMD ["python", "cb_model_server.py"]
