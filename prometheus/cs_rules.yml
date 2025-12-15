@@ -1,73 +1,87 @@
-# prometheus/cs_rules.yml
-groups:
-
-# === A. CS: PROACTIVE FAULT PREDICTION (Linear Exhaustion) ===
-- name: predictive_resource_exhaustion
-  interval: 1m
-  rules:
-    - record: node_memory_mem_available_prediction_seconds
-      expr: predict_linear(node_memory_MemAvailable_bytes[1h], 0)
-      
-    - record: node_filesystem_avail_prediction_seconds
-      expr: predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[1h], 0)
-      
-- name: cs_ml_prediction_alerts
-  rules:
-  - alert: PredictedCpuBreach
-    expr: cs_ml_predicted_cpu_user_rate > 0.01
-    for: 1m
-    labels:
-      severity: critical
-      team: mlops
-    annotations:
-      summary: "Predicted CPU rate will breach SLO in 15 minutes"
-      description: "The CS ML service predicts the user CPU rate for instance {{ $labels.instance }} will exceed the SLO threshold (0.01) within the next 15 minutes. Current predicted value: {{ $value }}"
-  
-# === B. CS: ANOMALY DETECTION (Statistical/Z-Score) BASES ===
-- name: statistical_anomaly_baselines
-  interval: 5m
-  rules:
-    - record: node_cpu_idle_rate_24h_avg
-      expr: avg_over_time(rate(node_cpu_seconds_total{mode="idle"}[5m])[24h:5m])
-      
-    - record: node_cpu_idle_rate_24h_stddev
-      expr: stddev_over_time(rate(node_cpu_seconds_total{mode="idle"}[5m])[24h:5m])
-
-# === C. CS: ALERTING RULES (Triggers for CB) ===
-- name: autonomous_platform_alerts
-  rules:
-    # 1. Alert: Memory Exhaustion Prediction
-    - alert: CS_Memory_Exhaustion_Predicted
-      expr: node_memory_mem_available_prediction_seconds < 21600 # < 6 hours
-      for: 5m
-      labels:
-        severity: high
-        alert_type: SLO_PREDICTION
-        metric: node_memory_MemAvailable_bytes
-      annotations:
-        summary: "Memory exhaustion predicted on host in less than 6 hours."
-        description: "The available memory is trending toward 0 on {{ $labels.instance }}. Predicted Time to Zero: {{ $value | humanizeDuration }}"
+# Kubernetes PrometheusRule resource for CS (Cognitive Service) alerts
+# This wraps the cs_rules.yml content in a Kubernetes CRD
+# Apply with: kubectl apply -f cs_rules_k8s.yaml -n monitoring
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cs-prediction-rules
+  namespace: monitoring
+  labels:
+    # These labels must match your Prometheus Operator's ruleSelector
+    release: prometheus
+    app: kube-prometheus-stack
+spec:
+  groups:
+  # === A. CS: PROACTIVE FAULT PREDICTION (Linear Exhaustion) ===
+  - name: predictive_resource_exhaustion
+    interval: 1m
+    rules:
+      - record: node_memory_mem_available_prediction_seconds
+        expr: predict_linear(node_memory_MemAvailable_bytes[1h], 0)
         
-    # 2. Alert: Disk Space Exhaustion Prediction
-    - alert: CS_Disk_Exhaustion_Predicted
-      expr: node_filesystem_avail_prediction_seconds{mountpoint="/"} < 43200 # < 12 hours
-      for: 15m
-      labels:
-        severity: warning
-        alert_type: SLO_PREDICTION
-        metric: node_filesystem_avail_bytes
-      annotations:
-        summary: "Root disk space exhaustion predicted in less than 12 hours."
-        description: "File system {{ $labels.mountpoint }} on {{ $labels.instance }} is predicted to run out of space soon."
-
-    # 3. Alert: CPU High Anomaly Detection (3-Sigma)
-    - alert: CS_CPU_High_Anomaly_Detected
-      expr: rate(node_cpu_seconds_total{mode="idle"}[5m]) < node_cpu_idle_rate_24h_avg - (3 * node_cpu_idle_rate_24h_stddev)
-      for: 5m
+      - record: node_filesystem_avail_prediction_seconds
+        expr: predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[1h], 0)
+        
+  - name: cs_ml_prediction_alerts
+    rules:
+    - alert: PredictedCpuBreach
+      expr: cs_ml_predicted_cpu_user_rate > 0.01
+      for: 1m
       labels:
         severity: critical
-        alert_type: ANOMALY_DETECTED
-        metric: node_cpu_seconds_total
+        alert_type: SLO_PREDICTION
+        source: CS_ML_Service
       annotations:
-        summary: "Anomalous high CPU utilization detected."
-        description: "CPU idle rate is 3-sigma below its 24-hour baseline on {{ $labels.instance }}. Likely a runaway process."
+        summary: "Predicted CPU breach for pod {{ $labels.target_pod }} in namespace {{ $labels.target_namespace }}"
+        description: "The CS ML service predicts CPU usage will exceed SLO threshold (0.01) within 15 minutes. Pod: {{ $labels.target_pod }}, App: {{ $labels.target_app }}, Container: {{ $labels.target_container }}, Current predicted value: {{ $value | humanizePercentage }}"
+        predicted_value: "{{ $value }}"
+        threshold: "0.01"
+    
+  # === B. CS: ANOMALY DETECTION (Statistical/Z-Score) BASELINES ===
+  - name: statistical_anomaly_baselines
+    interval: 5m
+    rules:
+      - record: node_cpu_idle_rate_24h_avg
+        expr: avg_over_time(rate(node_cpu_seconds_total{mode="idle"}[5m])[24h:5m])
+        
+      - record: node_cpu_idle_rate_24h_stddev
+        expr: stddev_over_time(rate(node_cpu_seconds_total{mode="idle"}[5m])[24h:5m])
+
+  # === C. CS: ALERTING RULES (Triggers for CB) ===
+  - name: autonomous_platform_alerts
+    rules:
+      # 1. Alert: Memory Exhaustion Prediction
+      - alert: CS_Memory_Exhaustion_Predicted
+        expr: node_memory_mem_available_prediction_seconds < 21600
+        for: 5m
+        labels:
+          severity: high
+          alert_type: SLO_PREDICTION
+          metric: node_memory_MemAvailable_bytes
+        annotations:
+          summary: "Memory exhaustion predicted on host in less than 6 hours."
+          description: "The available memory is trending toward 0 on {{ $labels.instance }}. Predicted Time to Zero: {{ $value | humanizeDuration }}"
+          
+      # 2. Alert: Disk Space Exhaustion Prediction
+      - alert: CS_Disk_Exhaustion_Predicted
+        expr: node_filesystem_avail_prediction_seconds{mountpoint="/"} < 43200
+        for: 15m
+        labels:
+          severity: warning
+          alert_type: SLO_PREDICTION
+          metric: node_filesystem_avail_bytes
+        annotations:
+          summary: "Root disk space exhaustion predicted in less than 12 hours."
+          description: "File system {{ $labels.mountpoint }} on {{ $labels.instance }} is predicted to run out of space soon."
+
+      # 3. Alert: CPU High Anomaly Detection (3-Sigma)
+      - alert: CS_CPU_High_Anomaly_Detected
+        expr: rate(node_cpu_seconds_total{mode="idle"}[5m]) < node_cpu_idle_rate_24h_avg - (3 * node_cpu_idle_rate_24h_stddev)
+        for: 5m
+        labels:
+          severity: critical
+          alert_type: ANOMALY_DETECTED
+          metric: node_cpu_seconds_total
+        annotations:
+          summary: "Anomalous high CPU utilization detected."
+          description: "CPU idle rate is 3-sigma below its 24-hour baseline on {{ $labels.instance }}. Likely a runaway process."
