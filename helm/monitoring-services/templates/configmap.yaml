@@ -13,3 +13,23 @@ data:
   ALERTMANAGER_URL: "http://{{ .Values.services.alertmanager.host }}:{{ .Values.services.alertmanager.port }}{{ .Values.services.alertmanager.extras }}" 
   GRPC_SERVER_PORT: "{{ .Values.grpcServer.service.port }}"
   GRPC_SERVER_NAMESPACE: "{{ .Release.Namespace }}"
+  # CB Model (vLLM) - gRPC interface for LLM completions
+  # Use CB_MODEL_GRPC_HOST:CB_MODEL_GRPC_PORT for gRPC connections
+  {{- if .Values.cbModel.enabled }}
+  CB_MODEL_GRPC_HOST: "{{ .Values.cbModel.service.name }}.{{ .Release.Namespace }}.svc.cluster.local"
+  CB_MODEL_GRPC_PORT: "{{ .Values.cbModel.service.grpcPort | default 50051 }}"
+  CB_MODEL_HTTP_URL: "http://{{ .Values.cbModel.service.name }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.cbModel.service.httpPort | default 8000 }}"
+  CB_MODEL_NAME: "{{ .Values.cbModel.model.name }}"
+  {{- end }}
+---
+# Separate ConfigMap for CB Model system prompt (multiline support)
+{{- if .Values.cbModel.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-cb-model-config
+  namespace: {{ .Release.Namespace }}
+data:
+  CB_SYSTEM_PROMPT: |
+{{ .Values.cbModel.systemPrompt | indent 4 }}
+{{- end }}

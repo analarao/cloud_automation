@@ -1,0 +1,157 @@
+# CB (Container-Brain): Local LLM with vLLM + gRPC Interface
+# Provides gRPC interface for LLM completions to AlertManager, CS Model, etc.
+{{- if .Values.cbModel.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.cbModel.deployment.name }}-cache
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: cb-model
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.cbModel.storage.size | default "50Gi" }}
+  {{- if .Values.cbModel.storage.storageClass }}
+  storageClassName: {{ .Values.cbModel.storage.storageClass }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.cbModel.deployment.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: cb-model
+    component: ai-decision-engine
+spec:
+  replicas: {{ .Values.cbModel.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: cb-model
+  template:
+    metadata:
+      labels:
+        app: cb-model
+        component: ai-decision-engine
+    spec:
+      {{- if .Values.cbModel.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.cbModel.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.cbModel.tolerations }}
+      tolerations:
+        {{- toYaml .Values.cbModel.tolerations | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: cb-model
+        image: "{{ .Values.cbModel.image.repository }}:{{ .Values.cbModel.image.tag }}"
+        imagePullPolicy: {{ .Values.cbModel.image.pullPolicy | default "Always" }}
+        ports:
+        - containerPort: {{ .Values.cbModel.service.grpcPort | default 50051 }}
+          name: grpc
+          protocol: TCP
+        - containerPort: {{ .Values.cbModel.service.httpPort | default 8000 }}
+          name: http
+          protocol: TCP
+        env:
+        # Model configuration
+        - name: CB_MODEL_NAME
+          value: "{{ .Values.cbModel.model.name }}"
+        - name: CB_MAX_MODEL_LEN
+          value: "{{ .Values.cbModel.model.maxModelLen | default 4096 }}"
+        - name: CB_DTYPE
+          value: "{{ .Values.cbModel.model.dtype | default "auto" }}"
+        {{- if .Values.cbModel.model.quantization }}
+        - name: CB_QUANTIZATION
+          value: "{{ .Values.cbModel.model.quantization }}"
+        {{- end }}
+        # GPU configuration
+        {{- if .Values.cbModel.gpu.enabled }}
+        - name: CB_GPU_MEMORY_UTILIZATION
+          value: "{{ .Values.cbModel.gpu.memoryUtilization | default 0.95 }}"
+        - name: CB_TENSOR_PARALLEL_SIZE
+          value: "{{ .Values.cbModel.gpu.tensorParallelSize | default 1 }}"
+        {{- end }}
+        # Server configuration
+        - name: CB_GRPC_PORT
+          value: "{{ .Values.cbModel.service.grpcPort | default 50051 }}"
+        - name: CB_MAX_WORKERS
+          value: "10"
+        # HuggingFace token for gated models
+        {{- if .Values.cbModel.huggingfaceSecret.enabled }}
+        - name: HUGGING_FACE_HUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.cbModel.huggingfaceSecret.name | default (printf "%s-hf-token" .Release.Name) }}
+              key: {{ .Values.cbModel.huggingfaceSecret.key | default "token" }}
+              optional: true
+        {{- end }}
+        # Additional environment variables
+        {{- if .Values.cbModel.env }}
+        {{- range $key, $value := .Values.cbModel.env }}
+        - name: {{ $key }}
+          value: "{{ $value }}"
+        {{- end }}
+        {{- end }}
+        envFrom:
+        - configMapRef:
+            name: {{ .Release.Name }}-service-urls
+        - configMapRef:
+            name: {{ .Release.Name }}-cb-model-config
+        volumeMounts:
+        - name: model-cache
+          mountPath: /root/.cache/huggingface
+        - name: shm
+          mountPath: /dev/shm
+        resources:
+          requests:
+            cpu: {{ .Values.cbModel.resources.requests.cpu | default "2" | quote }}
+            memory: {{ .Values.cbModel.resources.requests.memory | default "8Gi" | quote }}
+          limits:
+            cpu: {{ .Values.cbModel.resources.limits.cpu | default "8" | quote }}
+            {{- if .Values.cbModel.gpu.enabled }}
+            nvidia.com/gpu: {{ .Values.cbModel.gpu.count | default 1 | quote }}
+            {{- end }}
+        {{- if .Values.cbModel.healthCheck.enabled }}
+        # gRPC health check using exec
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - |
+              import grpc
+              import cb_model_pb2_grpc
+              channel = grpc.insecure_channel('localhost:{{ .Values.cbModel.service.grpcPort | default 50051 }}')
+              grpc.channel_ready_future(channel).result(timeout=5)
+          initialDelaySeconds: {{ .Values.cbModel.healthCheck.initialDelaySeconds | default 180 }}
+          periodSeconds: {{ .Values.cbModel.healthCheck.periodSeconds | default 30 }}
+          timeoutSeconds: {{ .Values.cbModel.healthCheck.timeoutSeconds | default 10 }}
+          failureThreshold: {{ .Values.cbModel.healthCheck.failureThreshold | default 5 }}
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - |
+              import grpc
+              channel = grpc.insecure_channel('localhost:{{ .Values.cbModel.service.grpcPort | default 50051 }}')
+              grpc.channel_ready_future(channel).result(timeout=5)
+          initialDelaySeconds: {{ .Values.cbModel.healthCheck.initialDelaySeconds | default 120 }}
+          periodSeconds: {{ .Values.cbModel.healthCheck.periodSeconds | default 10 }}
+          timeoutSeconds: {{ .Values.cbModel.healthCheck.timeoutSeconds | default 5 }}
+          failureThreshold: {{ .Values.cbModel.healthCheck.failureThreshold | default 3 }}
+        {{- end }}
+      volumes:
+      - name: model-cache
+        persistentVolumeClaim:
+          claimName: {{ .Values.cbModel.deployment.name }}-cache
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: {{ .Values.cbModel.shmSize | default "4Gi" }}
+{{- end }}

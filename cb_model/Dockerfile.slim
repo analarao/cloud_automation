@@ -1,0 +1,59 @@
+# CB Model - ULTRA SLIM Dockerfile (Alternative)
+# chandrashekar316/capstone:cb_model-slim
+#
+# This is an alternative ultra-minimal build using multi-stage approach
+# Use this if you need the absolute smallest image possible
+#
+# Image Size Comparison:
+# - nvidia/cuda:12.1.1-devel-ubuntu22.04 base: ~15-20GB
+# - vllm/vllm-openai (main Dockerfile): ~8GB  
+# - This slim version: ~6-7GB
+
+# Stage 1: Build stage - compile gRPC proto
+FROM python:3.10-slim AS builder
+
+WORKDIR /build
+
+# Install only build dependencies
+RUN pip install --no-cache-dir grpcio-tools
+
+# Copy and compile proto
+COPY cb_model.proto .
+RUN python -m grpc_tools.protoc \
+    -I. \
+    --python_out=. \
+    --grpc_python_out=. \
+    cb_model.proto
+
+# Stage 2: Runtime - use vLLM's minimal runtime image
+FROM vllm/vllm-openai:latest
+
+WORKDIR /app
+
+# Install only grpcio runtime (not tools - already compiled)
+RUN pip install --no-cache-dir grpcio protobuf && \
+    pip cache purge && \
+    rm -rf /root/.cache/pip
+
+# Copy compiled proto files from builder
+COPY --from=builder /build/cb_model_pb2.py .
+COPY --from=builder /build/cb_model_pb2_grpc.py .
+
+# Copy server code
+COPY cb_model_server.py .
+
+EXPOSE 50051
+
+ENV PYTHONUNBUFFERED=1 \
+    CB_GRPC_PORT=50051 \
+    CB_MODEL_NAME="TinyLlama/TinyLlama-1.1B-Chat-v1.0" \
+    CB_MAX_MODEL_LEN=4096 \
+    CB_GPU_MEMORY_UTILIZATION=0.95 \
+    CB_TENSOR_PARALLEL_SIZE=1 \
+    CB_DTYPE=auto \
+    CB_MAX_WORKERS=10
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD python -c "import grpc; ch = grpc.insecure_channel('localhost:50051'); grpc.channel_ready_future(ch).result(timeout=5)" || exit 1
+
+CMD ["python", "cb_model_server.py"]

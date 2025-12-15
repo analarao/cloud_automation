@@ -1,0 +1,44 @@
+# CB Model Service - Exposes gRPC interface for LLM completions
+{{- if .Values.cbModel.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.cbModel.service.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: cb-model
+    component: ai-decision-engine
+spec:
+  type: {{ .Values.cbModel.service.type | default "ClusterIP" }}
+  selector:
+    app: cb-model
+  ports:
+  # gRPC port for LLM completions
+  - port: {{ .Values.cbModel.service.grpcPort | default 50051 }}
+    targetPort: {{ .Values.cbModel.service.grpcPort | default 50051 }}
+    protocol: TCP
+    name: grpc
+  # HTTP port for health checks / fallback REST API
+  - port: {{ .Values.cbModel.service.httpPort | default 8000 }}
+    targetPort: {{ .Values.cbModel.service.httpPort | default 8000 }}
+    protocol: TCP
+    name: http
+---
+# ServiceMonitor for Prometheus scraping (optional metrics)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cb-model-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: cb-model
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: cb-model
+  endpoints:
+  - port: http
+    interval: 30s
+    path: /metrics
+{{- end }}

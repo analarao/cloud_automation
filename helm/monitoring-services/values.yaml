@@ -15,6 +15,12 @@ services:
   loki:
     host: "loki.monitoring.svc.cluster.local"
     port: "3100"
+  # CB Model (vLLM) - gRPC interface for LLM completions
+  # Services can use this for MCP command execution
+  cbModel:
+    host: "cb-model-service"
+    grpcPort: "50051"
+    httpPort: "8000"
 
   
 
@@ -41,4 +47,154 @@ grpcClient:
   image: chandrashekar316/capstone:grpc_client
   deployment:
     name: grpc-client-deployment
+
+# =============================================================================
+# CB (Container-Brain): Local LLM with vLLM + gRPC Interface
+# =============================================================================
+# This is the AI Decision Engine for the Autonomous Operations Platform.
+# It runs a local LLM via vLLM and exposes a gRPC interface for other services
+# (AlertManager, CS Model) to request completions/MCP command execution.
+# =============================================================================
+
+cbModel:
+  enabled: true
+  replicas: 1
+  
+  # --- Docker Image Configuration ---
+  image:
+    # Custom image with gRPC server wrapper around vLLM
+    repository: chandrashekar316/capstone
+    tag: cb_model
+    pullPolicy: Always
+  
+  deployment:
+    name: cb-model-deployment
+  
+  # --- Service Configuration (gRPC) ---
+  service:
+    name: cb-model-service
+    type: ClusterIP
+    # gRPC port for LLM completions
+    grpcPort: 50051
+    # Optional: HTTP port for health checks / REST fallback
+    httpPort: 8000
+
+  # ==========================================================================
+  # MODEL CONFIGURATION - Edit this section to change the LLM model
+  # ==========================================================================
+  model:
+    # -------------------------------------------------------------------------
+    # LOCAL MODEL OPTIONS (change 'name' to switch models):
+    # -------------------------------------------------------------------------
+    # Small models (< 4GB VRAM):
+    #   - "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    #   - "microsoft/phi-2"
+    #   - "Qwen/Qwen2-1.5B-Instruct"
+    #
+    # Medium models (8-16GB VRAM):
+    #   - "mistralai/Mistral-7B-Instruct-v0.2"
+    #   - "meta-llama/Llama-2-7b-chat-hf"
+    #   - "codellama/CodeLlama-7b-Instruct-hf"
+    #
+    # Large models (24GB+ VRAM):
+    #   - "meta-llama/Llama-2-13b-chat-hf"
+    #   - "codellama/CodeLlama-13b-Instruct-hf"
+    # -------------------------------------------------------------------------
+    name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    
+    # Maximum context length (tokens)
+    maxModelLen: "4096"
+    
+    # Data type: auto, half, float16, bfloat16
+    dtype: "auto"
+    
+    # Quantization (optional): awq, gptq, squeezellm, or empty for none
+    quantization: ""
+    
+    # Extra vLLM arguments (array of strings)
+    extraArgs: []
+
+  # ==========================================================================
+  # SYSTEM PROMPT CONFIGURATION
+  # ==========================================================================
+  # This is the default system prompt sent to the LLM for all requests.
+  # It sets the context and role for the AI decision engine.
+  # You can override this per-request via the gRPC call.
+  # ==========================================================================
+  systemPrompt: |
+    You are CB (Container-Brain), an expert SRE and DevOps AI assistant for the Autonomous Operations Platform.
+    Your role is to analyze alerts, diagnose issues, and generate MCP (Model Context Protocol) commands for remediation.
+    
+    When analyzing an alert:
+    1. Parse the alert context including metrics, logs, and service topology
+    2. Identify the root cause based on the symptoms
+    3. Query your knowledge of past incidents and successful remediations
+    4. Generate a structured remediation plan using MCP commands
+    
+    Available MCP Toolkits:
+    - Orchestration: kubectl commands, deployment rollbacks, scaling, network policies
+    - Application: cache clearing, service restarts, configuration updates
+    - Infrastructure: cloud provider API calls, firewall rules, load balancer config
+    
+    Always respond with actionable MCP commands in JSON format when remediation is needed.
+    Be concise and focus on the most likely root cause first.
+
+  # --- NVIDIA GPU Configuration ---
+  gpu:
+    enabled: true
+    # Number of GPUs to use
+    count: 1
+    # GPU memory utilization (0.0 to 1.0) - set to 95%
+    memoryUtilization: "0.95"
+    # Tensor parallel size (for multi-GPU setups)
+    tensorParallelSize: "1"
+  
+  # --- Storage for model cache ---
+  storage:
+    size: "50Gi"
+    # storageClass: ""  # Set if you need a specific storage class
+  
+  # Shared memory size for model loading
+  shmSize: "4Gi"
+  
+  # --- Resource Configuration ---
+  # Note: No hard memory limits - let the GPU manage memory
+  resources:
+    requests:
+      cpu: "2"
+      # Memory request only, no limit
+      memory: "8Gi"
+    limits:
+      cpu: "8"
+      # GPU limit
+      nvidia.com/gpu: "1"
+  
+  # --- Health Check Configuration ---
+  healthCheck:
+    enabled: true
+    initialDelaySeconds: 180
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 5
+  
+  # --- HuggingFace Token (for gated models like Llama) ---
+  huggingfaceSecret:
+    enabled: false
+    name: "hf-token-secret"
+    key: "token"
+    # Set your token: kubectl create secret generic hf-token-secret --from-literal=token=YOUR_TOKEN -n monitoring
+  
+  # --- Node Selector for GPU nodes ---
+  nodeSelector:
+    nvidia.com/gpu.present: "true"
+  
+  # --- Tolerations for GPU nodes ---
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+  
+  # --- Additional environment variables ---
+  env:
+    CUDA_VISIBLE_DEVICES: "0"
 

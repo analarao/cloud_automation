@@ -1,0 +1,14 @@
+# CB Model (Container-Brain) Dependencies
+# gRPC for service communication
+grpcio==1.76.0
+grpcio-tools==1.76.0
+protobuf==6.33.0
+
+# vLLM for local LLM inference
+vllm>=0.4.0
+
+# PyTorch with CUDA support (vLLM dependency)
+# torch is installed as part of vllm
+
+# Utilities
+typing_extensions==4.15.0
