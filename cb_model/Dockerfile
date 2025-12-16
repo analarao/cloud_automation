@@ -36,8 +36,10 @@ EXPOSE 50051
 # Environment variables (can be overridden)
 ENV CB_GRPC_PORT=50051
 ENV CB_MODEL_NAME="TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-ENV CB_MAX_MODEL_LEN=4096
-ENV CB_GPU_MEMORY_UTILIZATION=0.95
+# NOTE: TinyLlama only supports 2048 max_position_embeddings
+ENV CB_MAX_MODEL_LEN=2048
+# NOTE: 0.85 leaves headroom for CUDA context overhead
+ENV CB_GPU_MEMORY_UTILIZATION=0.85
 ENV CB_TENSOR_PARALLEL_SIZE=1
 ENV CB_DTYPE=auto
 ENV CB_MAX_WORKERS=10

@@ -30,22 +30,109 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- Configuration from Environment ---
-MODEL_NAME = os.environ.get("CB_MODEL_NAME", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
-MAX_MODEL_LEN = int(os.environ.get("CB_MAX_MODEL_LEN", "4096"))
-GPU_MEMORY_UTILIZATION = float(os.environ.get("CB_GPU_MEMORY_UTILIZATION", "0.95"))
-TENSOR_PARALLEL_SIZE = int(os.environ.get("CB_TENSOR_PARALLEL_SIZE", "1"))
-DTYPE = os.environ.get("CB_DTYPE", "auto")
-QUANTIZATION = os.environ.get("CB_QUANTIZATION", None)
-GRPC_PORT = int(os.environ.get("CB_GRPC_PORT", "50051"))
-MAX_WORKERS = int(os.environ.get("CB_MAX_WORKERS", "10"))
-
-# Default system prompt from environment (can be overridden per-request)
-DEFAULT_SYSTEM_PROMPT = os.environ.get("CB_SYSTEM_PROMPT", """
-You are CB (Container-Brain), an expert SRE and DevOps AI assistant.
+# --- Default Values ---
+# NOTE: TinyLlama only supports 2048 max_position_embeddings
+# If using a larger model, override CB_MAX_MODEL_LEN via environment
+DEFAULTS = {
+    "CB_MODEL_NAME": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "CB_MAX_MODEL_LEN": "2048",
+    "CB_GPU_MEMORY_UTILIZATION": "0.85",  # Leave headroom for CUDA context
+    "CB_TENSOR_PARALLEL_SIZE": "1",
+    "CB_DTYPE": "auto",
+    "CB_QUANTIZATION": "",
+    "CB_GRPC_PORT": "50051",
+    "CB_MAX_WORKERS": "10",
+    "CB_SYSTEM_PROMPT": """You are CB (Container-Brain), an expert SRE and DevOps AI assistant.
 Your role is to analyze alerts, diagnose issues, and generate MCP commands for remediation.
-Always respond with actionable commands in JSON format when remediation is needed.
-""").strip()
+Always respond with actionable commands in JSON format when remediation is needed.""",
+}
+
+
+def get_env_with_logging(env_name: str, default: str, cast_type: type = str):
+    """
+    Get environment variable with logging to indicate source.
+    
+    Args:
+        env_name: Name of the environment variable
+        default: Default value if not set
+        cast_type: Type to cast the value to (str, int, float)
+    
+    Returns:
+        The environment variable value, cast to the specified type
+    """
+    raw_value = os.environ.get(env_name)
+    
+    if raw_value is not None and raw_value.strip():
+        source = "ENV"
+        value = raw_value.strip()
+    else:
+        source = "DEFAULT"
+        value = default
+    
+    # Log the source and value
+    logger.info(f"[CONFIG] {env_name} = '{value}' (source: {source})")
+    
+    # Cast to the specified type
+    try:
+        if cast_type == bool:
+            return value.lower() in ('true', '1', 'yes')
+        return cast_type(value)
+    except (ValueError, TypeError) as e:
+        logger.error(f"[CONFIG] Failed to cast {env_name}='{value}' to {cast_type.__name__}: {e}")
+        logger.warning(f"[CONFIG] Using default value for {env_name}: {default}")
+        return cast_type(default)
+
+
+def load_configuration():
+    """Load and validate all configuration from environment variables."""
+    logger.info("=" * 60)
+    logger.info("CB Model Server - Loading Configuration")
+    logger.info("=" * 60)
+    
+    config = {
+        "MODEL_NAME": get_env_with_logging("CB_MODEL_NAME", DEFAULTS["CB_MODEL_NAME"], str),
+        "MAX_MODEL_LEN": get_env_with_logging("CB_MAX_MODEL_LEN", DEFAULTS["CB_MAX_MODEL_LEN"], int),
+        "GPU_MEMORY_UTILIZATION": get_env_with_logging("CB_GPU_MEMORY_UTILIZATION", DEFAULTS["CB_GPU_MEMORY_UTILIZATION"], float),
+        "TENSOR_PARALLEL_SIZE": get_env_with_logging("CB_TENSOR_PARALLEL_SIZE", DEFAULTS["CB_TENSOR_PARALLEL_SIZE"], int),
+        "DTYPE": get_env_with_logging("CB_DTYPE", DEFAULTS["CB_DTYPE"], str),
+        "QUANTIZATION": get_env_with_logging("CB_QUANTIZATION", DEFAULTS["CB_QUANTIZATION"], str),
+        "GRPC_PORT": get_env_with_logging("CB_GRPC_PORT", DEFAULTS["CB_GRPC_PORT"], int),
+        "MAX_WORKERS": get_env_with_logging("CB_MAX_WORKERS", DEFAULTS["CB_MAX_WORKERS"], int),
+        "SYSTEM_PROMPT": get_env_with_logging("CB_SYSTEM_PROMPT", DEFAULTS["CB_SYSTEM_PROMPT"], str),
+    }
+    
+    # Handle empty quantization as None
+    if not config["QUANTIZATION"]:
+        config["QUANTIZATION"] = None
+    
+    logger.info("=" * 60)
+    logger.info("Configuration Summary:")
+    logger.info(f"  Model: {config['MODEL_NAME']}")
+    logger.info(f"  Max Model Length: {config['MAX_MODEL_LEN']}")
+    logger.info(f"  GPU Memory Utilization: {config['GPU_MEMORY_UTILIZATION']}")
+    logger.info(f"  Tensor Parallel Size: {config['TENSOR_PARALLEL_SIZE']}")
+    logger.info(f"  Dtype: {config['DTYPE']}")
+    logger.info(f"  Quantization: {config['QUANTIZATION'] or 'None'}")
+    logger.info(f"  gRPC Port: {config['GRPC_PORT']}")
+    logger.info(f"  Max Workers: {config['MAX_WORKERS']}")
+    logger.info("=" * 60)
+    
+    return config
+
+
+# --- Load Configuration ---
+CONFIG = load_configuration()
+
+# Export as module-level variables for backward compatibility
+MODEL_NAME = CONFIG["MODEL_NAME"]
+MAX_MODEL_LEN = CONFIG["MAX_MODEL_LEN"]
+GPU_MEMORY_UTILIZATION = CONFIG["GPU_MEMORY_UTILIZATION"]
+TENSOR_PARALLEL_SIZE = CONFIG["TENSOR_PARALLEL_SIZE"]
+DTYPE = CONFIG["DTYPE"]
+QUANTIZATION = CONFIG["QUANTIZATION"]
+GRPC_PORT = CONFIG["GRPC_PORT"]
+MAX_WORKERS = CONFIG["MAX_WORKERS"]
+DEFAULT_SYSTEM_PROMPT = CONFIG["SYSTEM_PROMPT"].strip()
 
 # Global LLM instance
 llm: Optional[LLM] = None
@@ -274,8 +361,21 @@ class CBModelServicer(cb_model_pb2_grpc.CBModelServiceServicer):
             )
 
 
-def serve():
-    """Start the gRPC server."""
+def serve(dry_run: bool = False):
+    """Start the gRPC server.
+    
+    Args:
+        dry_run: If True, only validate configuration without starting server
+    """
+    if dry_run:
+        logger.info("=" * 60)
+        logger.info("DRY RUN MODE - Validating configuration only")
+        logger.info("=" * 60)
+        logger.info("Configuration validated successfully!")
+        logger.info("To start the server, run without --dry-run flag")
+        logger.info("=" * 60)
+        return
+    
     # Initialize the LLM first
     initialize_llm()
     
@@ -295,4 +395,33 @@ def serve():
 
 
 if __name__ == "__main__":
-    serve()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="CB Model gRPC Server")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate configuration and exit without loading model or starting server"
+    )
+    parser.add_argument(
+        "--show-config",
+        action="store_true",
+        help="Print loaded configuration and exit"
+    )
+    args = parser.parse_args()
+    
+    if args.show_config:
+        import json
+        print(json.dumps({
+            "MODEL_NAME": MODEL_NAME,
+            "MAX_MODEL_LEN": MAX_MODEL_LEN,
+            "GPU_MEMORY_UTILIZATION": GPU_MEMORY_UTILIZATION,
+            "TENSOR_PARALLEL_SIZE": TENSOR_PARALLEL_SIZE,
+            "DTYPE": DTYPE,
+            "QUANTIZATION": QUANTIZATION,
+            "GRPC_PORT": GRPC_PORT,
+            "MAX_WORKERS": MAX_WORKERS,
+            "SYSTEM_PROMPT": DEFAULT_SYSTEM_PROMPT[:100] + "..."
+        }, indent=2))
+    else:
+        serve(dry_run=args.dry_run)

@@ -47,7 +47,8 @@ EXPOSE 50051
 ENV PYTHONUNBUFFERED=1 \
     CB_GRPC_PORT=50051 \
     CB_MODEL_NAME="TinyLlama/TinyLlama-1.1B-Chat-v1.0" \
-    CB_MAX_MODEL_LEN=4096 \
+    # NOTE: TinyLlama only supports 2048 max_position_embeddings
+    CB_MAX_MODEL_LEN=2048 \
     CB_GPU_MEMORY_UTILIZATION=0.95 \
     CB_TENSOR_PARALLEL_SIZE=1 \
     CB_DTYPE=auto \

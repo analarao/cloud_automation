@@ -103,7 +103,8 @@ cbModel:
     name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     
     # Maximum context length (tokens)
-    maxModelLen: "4096"
+    # NOTE: TinyLlama only supports 2048 max. Larger models may support 4096+
+    maxModelLen: "2048"
     
     # Data type: auto, half, float16, bfloat16
     dtype: "auto"
@@ -144,8 +145,10 @@ cbModel:
     enabled: true
     # Number of GPUs to use
     count: 1
-    # GPU memory utilization (0.0 to 1.0) - set to 95%
-    memoryUtilization: "0.95"
+    # GPU memory utilization (0.0-1.0)
+    # NOTE: Set to 0.85 to leave headroom for CUDA context and other processes
+    # If you get "Free memory less than desired" errors, lower this further
+    memoryUtilization: "0.85"
     # Tensor parallel size (for multi-GPU setups)
     tensorParallelSize: "1"
   
