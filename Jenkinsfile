@@ -41,7 +41,19 @@ pipeline {
                     env.COMMIT_AUTHOR = sh(script: 'git log -1 --format="%an"', returnStdout: true).trim()
                     env.COMMIT_MESSAGE = sh(script: 'git log -1 --format="%s"', returnStdout: true).trim()
                     env.COMMIT_TIMESTAMP = sh(script: 'git log -1 --format="%ci"', returnStdout: true).trim()
-                    env.BRANCH_NAME = sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
+                    
+                    // Get actual branch name (handles detached HEAD from Jenkins checkout)
+                    env.GIT_BRANCH_NAME = sh(script: '''
+                        # Try to get branch from Jenkins env vars first
+                        if [ -n "${GIT_BRANCH:-}" ]; then
+                            echo "${GIT_BRANCH}" | sed 's|origin/||'
+                        elif [ -n "${BRANCH_NAME:-}" ]; then
+                            echo "${BRANCH_NAME}"
+                        else
+                            # Fallback: try git branch --show-current or parse from ref
+                            git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD
+                        fi
+                    ''', returnStdout: true).trim()
                     
                     if (env.PREVIOUS_COMMIT) {
                         // Extract the diff between commits
@@ -77,7 +89,7 @@ pipeline {
                         --author "${COMMIT_AUTHOR}" \
                         --message "${COMMIT_MESSAGE}" \
                         --timestamp "${COMMIT_TIMESTAMP}" \
-                        --branch "${BRANCH_NAME}" \
+                        --branch "${GIT_BRANCH_NAME}" \
                         --diff-file "diff_output.patch" \
                         --changed-files "${CHANGED_FILES}"
                 '''
