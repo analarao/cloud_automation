@@ -1,0 +1,112 @@
+---
+# ChromaDB Kubernetes Deployment
+# Deploy with: kubectl apply -f chromadb-deployment.yaml -n monitoring
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chromadb
+  labels:
+    app: chromadb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chromadb
+  template:
+    metadata:
+      labels:
+        app: chromadb
+    spec:
+      containers:
+        - name: chromadb
+          image: chromadb/chroma:latest
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: IS_PERSISTENT
+              value: "TRUE"
+            - name: PERSIST_DIRECTORY
+              value: "/chroma/chroma"
+            - name: ANONYMIZED_TELEMETRY
+              value: "FALSE"
+          volumeMounts:
+            - name: chromadb-storage
+              mountPath: /chroma/chroma
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /api/v2/heartbeat
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /api/v2/heartbeat
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: chromadb-storage
+          persistentVolumeClaim:
+            claimName: chromadb-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chromadb
+  labels:
+    app: chromadb
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app: chromadb
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chromadb-pvc
+  labels:
+    app: chromadb
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  # Uncomment and set storageClassName for your cluster
+  # storageClassName: standard
+
+---
+# Optional: ServiceMonitor for Prometheus scraping
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: chromadb
+  labels:
+    app: chromadb
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: chromadb
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

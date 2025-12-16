@@ -987,7 +987,7 @@ kubectl port-forward --namespace monitoring svc/prometheus-grafana 8080:80 &
 minikube tunnel &
 istioctl dashboard kiali &
 
-echo "✓ Setup complete! Access Grafana at http://localhost:8080"
+echo "✓ Se@tup complete! Access Grafana at http://localhost:8080"
 ```
 
 ---
@@ -1005,4 +1005,3 @@ echo "✓ Setup complete! Access Grafana at http://localhost:8080"
 
 **Last Updated:** November 12, 2025  
 **Version:** 1.0
-bye
