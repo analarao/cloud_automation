@@ -1005,3 +1005,4 @@ echo "✓ Setup complete! Access Grafana at http://localhost:8080"
 
 **Last Updated:** November 12, 2025  
 **Version:** 1.0
+bye
