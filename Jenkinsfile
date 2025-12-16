@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        CHROMADB_HOST = credentials('chromadb-host') ?: 'http://localhost:8000'
+        CHROMADB_HOST = credentials('chromadb-host')
         CHROMADB_COLLECTION = 'git_diffs'
         REPO_NAME = 'cloud_automation'
     }
