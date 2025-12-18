@@ -982,11 +982,53 @@ class AlertPipeline:
 app = Flask(__name__)
 pipeline: Optional[AlertPipeline] = None
 
+# Deduplication: track recently processed alerts (fingerprint -> timestamp)
+processed_alerts: Dict[str, float] = {}
+DEDUP_WINDOW_SECONDS = 300  # 5 minutes - don't reprocess same alert within this window
+
 
 def init_pipeline():
     """Initialize the alert pipeline."""
     global pipeline
     pipeline = AlertPipeline(config)
+
+
+def get_alert_fingerprint(alert: dict) -> str:
+    """
+    Generate a fingerprint for an alert to detect duplicates.
+    Uses alertname + namespace + service/app labels.
+    """
+    labels = alert.get("labels", {})
+    parts = [
+        labels.get("alertname", ""),
+        labels.get("namespace", ""),
+        labels.get("service") or labels.get("app") or labels.get("pod") or "",
+    ]
+    return "|".join(parts)
+
+
+def is_duplicate_alert(fingerprint: str) -> bool:
+    """Check if an alert was recently processed."""
+    global processed_alerts
+    now = time.time()
+    
+    # Clean up old entries
+    old_fingerprints = [fp for fp, ts in processed_alerts.items() if now - ts > DEDUP_WINDOW_SECONDS]
+    for fp in old_fingerprints:
+        del processed_alerts[fp]
+    
+    # Check if this alert was recently processed
+    if fingerprint in processed_alerts:
+        elapsed = now - processed_alerts[fingerprint]
+        logger.info(f"  ⏭️  Duplicate alert (processed {elapsed:.0f}s ago): {fingerprint}")
+        return True
+    
+    return False
+
+
+def mark_alert_processed(fingerprint: str):
+    """Mark an alert as processed."""
+    processed_alerts[fingerprint] = time.time()
 
 
 @app.route("/health", methods=["GET"])
@@ -1006,39 +1048,62 @@ def alertmanager_webhook():
     AlertManager webhook receiver.
     
     Receives alerts and processes them through the pipeline.
+    Only processes alerts from the target namespace (default: target-services).
     """
     try:
         payload = request.json
         alerts = payload.get("alerts", [])
+        target_ns = config.target_namespace
         
         logger.info("")
         logger.info("█" * 70)
         logger.info("█  ALERTMANAGER WEBHOOK RECEIVED")
         logger.info("█" * 70)
         logger.info(f"  Total alerts in payload: {len(alerts)}")
+        logger.info(f"  Target namespace filter: {target_ns}")
         
         # Log each alert briefly
         for i, alert in enumerate(alerts):
             labels = alert.get("labels", {})
             status = alert.get("status", "unknown")
+            alert_ns = labels.get("namespace", "unknown")
             logger.info(f"")
             logger.info(f"  Alert {i+1}: {labels.get('alertname', 'Unknown')}")
             logger.info(f"    Status:    {status}")
             logger.info(f"    Severity:  {labels.get('severity', 'unknown')}")
-            logger.info(f"    Namespace: {labels.get('namespace', 'unknown')}")
+            logger.info(f"    Namespace: {alert_ns} {'✓' if alert_ns == target_ns else '(skip - not target namespace)'}")
             logger.info(f"    Service:   {labels.get('service') or labels.get('app') or 'unknown'}")
         
         results = []
         for alert in alerts:
-            # Only process firing alerts
+            labels = alert.get("labels", {})
+            alert_name = labels.get("alertname", "Unknown")
+            alert_ns = labels.get("namespace", "")
+            
+            # Filter 1: Only process firing alerts
             if alert.get("status") != "firing":
-                logger.info(f"  ⏭️  Skipping non-firing alert: {alert.get('labels', {}).get('alertname')}")
+                logger.info(f"  ⏭️  Skipping non-firing alert: {alert_name}")
+                continue
+            
+            # Filter 2: Only process alerts from target namespace
+            if alert_ns != target_ns:
+                logger.info(f"  ⏭️  Skipping alert from wrong namespace: {alert_name} (namespace={alert_ns}, target={target_ns})")
+                continue
+            
+            # Filter 3: Deduplication - skip if recently processed
+            fingerprint = get_alert_fingerprint(alert)
+            if is_duplicate_alert(fingerprint):
                 continue
             
             logger.info("")
             logger.info("─" * 70)
-            logger.info(f"  🚨 PROCESSING FIRING ALERT: {alert.get('labels', {}).get('alertname')}")
+            logger.info(f"  🚨 PROCESSING FIRING ALERT: {alert_name}")
+            logger.info(f"     Namespace: {alert_ns}")
+            logger.info(f"     Fingerprint: {fingerprint}")
             logger.info("─" * 70)
+            
+            # Mark as processing to prevent concurrent duplicates
+            mark_alert_processed(fingerprint)
             
             result = pipeline.process_alert(alert)
             results.append(result)
