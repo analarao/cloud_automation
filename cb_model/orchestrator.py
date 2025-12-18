@@ -96,38 +96,35 @@ class CBOrchestrator:
     5. Repeat until done
     """
     
-    SYSTEM_PROMPT = """You are an AI-powered Kubernetes operations assistant for the Autonomous Operations Platform (AOP). Your role is to analyze alerts and take remediation actions.
+    SYSTEM_PROMPT = """You are an AI-powered Kubernetes operations assistant. Your role is to analyze alerts and take remediation actions using the provided tools.
 
-IMPORTANT CONSTRAINTS:
-1. You can ONLY operate on resources in the '{namespace}' namespace
-2. Always gather information before taking destructive actions
-3. Prefer scaling operations over deletion
-4. Log all actions you take
-5. If you're unsure, gather more information first
+CRITICAL INSTRUCTIONS:
+- You MUST use the tool functions provided to interact with Kubernetes
+- DO NOT write JSON in your text responses - use the actual tool functions
+- You can ONLY operate on resources in the '{namespace}' namespace
+- Always investigate before taking destructive actions
 
-AVAILABLE TOOLS:
-You have access to Kubernetes tools via MCP (Model Context Protocol). Use them to:
-- kubectl_get: List/get pods, deployments, services, etc.
-- kubectl_describe: Get detailed info about resources
-- kubectl_logs: Get pod logs for debugging
-- kubectl_scale: Scale deployments up or down
-- kubectl_delete: Delete pods (they will be recreated by deployment)
-- kubectl_apply: Apply YAML configurations
+AVAILABLE TOOLS (use these, don't print JSON):
+- kubectl_get: Get/list resources (pods, deployments, services)
+- kubectl_describe: Get detailed resource info
+- kubectl_logs: Get pod logs
+- kubectl_scale: Scale deployments
+- kubectl_delete: Delete pods to restart them
 - kubectl_patch: Patch resources
 
-NOTE: Tool arguments use camelCase (e.g., resourceType, not resource_type).
-For kubectl_get, provide name="" to list all resources of that type.
+TOOL ARGUMENT FORMAT (camelCase):
+- resourceType: "pods", "deployments", "services", etc.
+- name: resource name (use "" to list all)
+- namespace: always use "{namespace}"
 
-REMEDIATION WORKFLOW:
-1. ANALYZE: Understand the alert and what it indicates
-2. INVESTIGATE: Use kubectl_get and kubectl_describe to gather information
-3. DIAGNOSE: Identify the root cause based on evidence
-4. PLAN: Decide on remediation actions
-5. EXECUTE: Take remediation actions (scale, restart, etc.)
-6. VERIFY: Use kubectl_get to confirm the issue is resolved
+WORKFLOW:
+1. First, use kubectl_get to investigate the current state
+2. Use kubectl_describe or kubectl_logs if you need more details
+3. Take remediation action (scale, delete pod to restart, etc.)
+4. Verify with kubectl_get that the issue is resolved
+5. End with "REMEDIATION COMPLETE:" or "REMEDIATION FAILED:"
 
-When you have completed your analysis and remediation, provide a final summary starting with:
-- "REMEDIATION COMPLETE:" if successful, followed by what you did
+IMPORTANT: Only say "REMEDIATION COMPLETE:" or "REMEDIATION FAILED:" when you are truly finished and have verified the result."""
 - "REMEDIATION FAILED:" if unsuccessful, followed by the reason
 
 Be concise and action-oriented. Start by investigating the current state."""
@@ -325,17 +322,17 @@ Be concise and action-oriented. Start by investigating the current state."""
                 logger.info(f"\n--- Iteration {iteration}/{self.max_iterations} ---")
                 
                 # Determine tool_choice strategy:
-                # - First few iterations: force tool use to gather information
-                # - Later iterations: allow model to decide (auto) or finish
-                # - If we have taken actions, allow finishing
-                if len(actions_taken) == 0 and iteration <= 3:
-                    # Force tool use initially to gather information
+                # - First few iterations: force tool use to ensure real MCP calls
+                # - Later iterations: allow model to finish with "auto"
+                # - Last iteration: must be auto to allow finishing
+                if iteration < self.max_iterations - 1 and iteration <= 4:
+                    # Force tool use for first 4 iterations
                     tool_choice = "required"
-                    logger.info("Tool choice: required (gathering information)")
+                    logger.info("Tool choice: required (forcing tool use)")
                 else:
-                    # Allow model to decide after initial investigation
+                    # Allow model to finish on later iterations
                     tool_choice = "auto"
-                    logger.info("Tool choice: auto (can finish or continue)")
+                    logger.info("Tool choice: auto (can finish)")
                 
                 # Call LLM with tools
                 response = self.client.chat.completions.create(
@@ -442,7 +439,7 @@ Be concise and action-oriented. Start by investigating the current state."""
                     if iteration < self.max_iterations - 1:
                         messages.append({
                             "role": "user",
-                            "content": "Please continue with your analysis. Use the available tools to investigate or take action. When done, provide a summary starting with 'REMEDIATION COMPLETE:' or 'REMEDIATION FAILED:'."
+                            "content": "Continue investigating. Use the kubectl_get, kubectl_describe, or kubectl_logs tools to gather more information. Do NOT write JSON - call the tool functions directly."
                         })
             
             # Max iterations reached
