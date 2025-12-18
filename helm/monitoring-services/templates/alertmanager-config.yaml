@@ -71,7 +71,7 @@ stringData:
       # CB Model Alert Pipeline - receives alerts for autonomous remediation
       - name: 'cb-model-webhook'
         webhook_configs:
-          - url: 'http://alert-aggregator-service.monitoring.svc.cluster.local:9095/webhook'
+          - url: 'http://alert-pipeline-service.monitoring.svc.cluster.local:9095/webhook'
             send_resolved: true
             max_alerts: 10
             http_config:
