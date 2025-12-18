@@ -29,12 +29,21 @@ from openai import OpenAI
 
 from mcp_client import MCPKubernetesClient, MCPTool
 
-# Configure logging
+# Configure logging with more detail
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='[%(asctime)s] %(levelname)s %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+# Also set up a separator for visual clarity
+def log_section(title: str, char: str = "=", width: int = 70):
+    """Log a section header for visual clarity."""
+    logger.info("")
+    logger.info(char * width)
+    logger.info(f"  {title}")
+    logger.info(char * width)
 
 
 @dataclass
@@ -269,8 +278,9 @@ COMPLETION:
         Returns:
             Tool execution result
         """
-        logger.info(f"Executing tool: {tool_name}")
-        logger.debug(f"Arguments: {json.dumps(arguments, indent=2)}")
+        logger.info(f"")
+        logger.info(f"  ┌─ EXECUTING TOOL: {tool_name}")
+        logger.info(f"  │  Arguments: {json.dumps(arguments, indent=2).replace(chr(10), chr(10) + '  │  ')}")
         
         try:
             async with MCPKubernetesClient(
@@ -279,16 +289,27 @@ COMPLETION:
                 result = await client.call_tool(tool_name, arguments)
                 
                 if result.success:
-                    # Truncate long results for logging
-                    result_preview = str(result.result)[:500]
-                    logger.info(f"Tool succeeded: {result_preview}...")
+                    # Show result preview
+                    result_str = str(result.result)
+                    lines = result_str.split('\n')
+                    logger.info(f"  │")
+                    logger.info(f"  │  ✓ SUCCESS - Output ({len(result_str)} chars, {len(lines)} lines):")
+                    # Show first 15 lines
+                    for line in lines[:15]:
+                        logger.info(f"  │  {line[:120]}")
+                    if len(lines) > 15:
+                        logger.info(f"  │  ... ({len(lines) - 15} more lines)")
+                    logger.info(f"  └─────────────────────────────────────────")
                     return {"success": True, "result": result.result}
                 else:
-                    logger.error(f"Tool failed: {result.error}")
+                    logger.error(f"  │")
+                    logger.error(f"  │  ✗ FAILED: {result.error}")
+                    logger.error(f"  └─────────────────────────────────────────")
                     return {"success": False, "error": result.error}
                     
         except Exception as e:
-            logger.error(f"Tool execution failed: {e}")
+            logger.error(f"  │  ✗ EXCEPTION: {e}")
+            logger.error(f"  └─────────────────────────────────────────")
             return {"success": False, "error": str(e)}
     
     async def process_alert_async(self, alert: Alert) -> RemediationResult:
@@ -302,14 +323,26 @@ COMPLETION:
             RemediationResult with details of actions taken
         """
         start_time = time.time()
-        logger.info(f"=" * 60)
-        logger.info(f"Processing alert: {alert.alert_name}")
-        logger.info(f"Severity: {alert.severity}")
-        logger.info(f"Namespace: {alert.namespace}")
-        logger.info(f"=" * 60)
+        
+        log_section("CB MODEL - ALERT RECEIVED", "█")
+        logger.info(f"  Alert Name:  {alert.alert_name}")
+        logger.info(f"  Severity:    {alert.severity}")
+        logger.info(f"  Namespace:   {alert.namespace}")
+        if alert.pod_name:
+            logger.info(f"  Pod:         {alert.pod_name}")
+        if alert.deployment_name:
+            logger.info(f"  Deployment:  {alert.deployment_name}")
+        logger.info("")
+        
+        # Show the full alert prompt
+        log_section("ALERT CONTEXT (sent to LLM)")
+        for line in alert.to_prompt().split('\n')[:30]:
+            logger.info(f"  {line}")
+        logger.info("")
         
         # Discover model
         self._discover_model()
+        logger.info(f"Using model: {self.model_name}")
         
         # Load tools
         tools = await self._load_mcp_tools_async()
@@ -323,7 +356,7 @@ COMPLETION:
                 error="Failed to load MCP tools"
             )
         
-        logger.info(f"Loaded {len(tools)} tools for LLM")
+        logger.info(f"Loaded {len(tools)} MCP tools: {[t['function']['name'] for t in tools]}")
         
         # Build system prompt with namespace
         system_prompt = self.SYSTEM_PROMPT.format(namespace=self.target_namespace)
@@ -339,10 +372,15 @@ COMPLETION:
         last_tool_call = None  # Track last tool call to detect loops
         repeated_call_count = 0
         
+        log_section("STARTING LLM REASONING LOOP", "─")
+        
         try:
             while iteration < self.max_iterations:
                 iteration += 1
-                logger.info(f"\n--- Iteration {iteration}/{self.max_iterations} ---")
+                logger.info("")
+                logger.info(f"╔══════════════════════════════════════════════════════════════════╗")
+                logger.info(f"║  ITERATION {iteration}/{self.max_iterations}                                                   ║")
+                logger.info(f"╚══════════════════════════════════════════════════════════════════╝")
                 
                 # Determine tool_choice strategy:
                 # - First 2 iterations: force tool use to ensure real MCP calls
@@ -351,11 +389,13 @@ COMPLETION:
                 if iteration <= 2 and repeated_call_count < 2:
                     # Force tool use for first 2 iterations
                     tool_choice = "required"
-                    logger.info("Tool choice: required (forcing tool use)")
+                    logger.info(f"  Strategy: REQUIRED (forcing tool use)")
                 else:
                     # Allow model to finish on later iterations
                     tool_choice = "auto"
-                    logger.info("Tool choice: auto (can finish)")
+                    logger.info(f"  Strategy: AUTO (can finish or use tools)")
+                
+                logger.info(f"  Calling LLM...")
                 
                 # Call LLM with tools
                 response = self.client.chat.completions.create(
@@ -372,18 +412,26 @@ COMPLETION:
                 
                 # Log LLM response
                 if message.content:
-                    logger.info(f"LLM: {message.content[:200]}...")
+                    logger.info(f"")
+                    logger.info(f"  ┌─ LLM REASONING:")
+                    for line in message.content.split('\n')[:10]:
+                        logger.info(f"  │  {line[:100]}")
+                    if len(message.content.split('\n')) > 10:
+                        logger.info(f"  │  ...")
+                    logger.info(f"  └─────────────────")
                 
                 # Check for tool calls
                 if message.tool_calls:
-                    logger.info(f"LLM requested {len(message.tool_calls)} tool call(s)")
+                    logger.info(f"")
+                    logger.info(f"  🔧 LLM REQUESTED {len(message.tool_calls)} TOOL CALL(S):")
                     
                     # Detect repeated tool calls (loop detection)
                     current_call = f"{message.tool_calls[0].function.name}:{message.tool_calls[0].function.arguments}"
                     if current_call == last_tool_call:
                         repeated_call_count += 1
-                        logger.warning(f"Detected repeated tool call ({repeated_call_count}x): {message.tool_calls[0].function.name}")
+                        logger.warning(f"  ⚠️  LOOP DETECTED: Same tool call repeated {repeated_call_count}x")
                         if repeated_call_count >= 2:
+                            logger.warning(f"  ⚠️  Breaking loop - prompting LLM to use different approach")
                             # Add guidance to break out of loop
                             messages.append({
                                 "role": "user", 
@@ -446,11 +494,16 @@ COMPLETION:
                 else:
                     # No tool calls - LLM is providing final response
                     content = message.content or ""
-                    logger.info(f"LLM final response: {content[:300]}...")
+                    logger.info(f"")
+                    logger.info(f"  📝 LLM TEXT RESPONSE:")
+                    for line in content.split('\n')[:20]:
+                        logger.info(f"     {line[:100]}")
+                    if len(content.split('\n')) > 20:
+                        logger.info(f"     ...")
                     
                     # Detect if LLM is writing JSON in text instead of using tools
                     if '```json' in content and '"name":' in content and '"arguments":' in content:
-                        logger.warning("LLM wrote JSON in text instead of calling tools - prompting to use actual tools")
+                        logger.warning("  ⚠️  LLM wrote JSON instead of calling tools - prompting to use actual tools")
                         messages.append({
                             "role": "assistant",
                             "content": content
@@ -470,7 +523,15 @@ COMPLETION:
                     # Check for completion markers
                     if "REMEDIATION COMPLETE:" in content:
                         elapsed = time.time() - start_time
-                        logger.info(f"✓ Remediation completed in {elapsed:.1f}s")
+                        log_section("✅ REMEDIATION COMPLETE", "█")
+                        logger.info(f"  Time elapsed: {elapsed:.1f}s")
+                        logger.info(f"  Iterations:   {iteration}")
+                        logger.info(f"  Actions:      {len(actions_taken)}")
+                        logger.info(f"")
+                        logger.info(f"  Final Response:")
+                        for line in content.split('\n'):
+                            logger.info(f"    {line}")
+                        logger.info("")
                         return RemediationResult(
                             success=True,
                             actions_taken=actions_taken,
@@ -479,7 +540,15 @@ COMPLETION:
                         )
                     elif "REMEDIATION FAILED:" in content:
                         elapsed = time.time() - start_time
-                        logger.info(f"✗ Remediation failed after {elapsed:.1f}s")
+                        log_section("❌ REMEDIATION FAILED", "█")
+                        logger.info(f"  Time elapsed: {elapsed:.1f}s")
+                        logger.info(f"  Iterations:   {iteration}")
+                        logger.info(f"  Actions:      {len(actions_taken)}")
+                        logger.info(f"")
+                        logger.info(f"  Final Response:")
+                        for line in content.split('\n'):
+                            logger.info(f"    {line}")
+                        logger.info("")
                         return RemediationResult(
                             success=False,
                             actions_taken=actions_taken,

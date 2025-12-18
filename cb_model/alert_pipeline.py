@@ -907,15 +907,44 @@ class AlertPipeline:
         
         try:
             # Step 1: Aggregate context
-            logger.info("Step 1: Aggregating context...")
+            logger.info("")
+            logger.info("┌" + "─" * 60)
+            logger.info("│ STEP 1: AGGREGATING CONTEXT FROM PROMETHEUS + K8S")
+            logger.info("└" + "─" * 60)
             context = self.aggregator.aggregate_from_alertmanager(alert_payload)
             
+            # Log what we found
+            logger.info(f"  ✓ Service Status: up={context.service_status.get('is_up', False)}, instances={context.service_status.get('up_instances', 0)}")
+            logger.info(f"  ✓ Deployment: desired={context.deployment_status.get('desired', 0)}, available={context.deployment_status.get('available', 0)}")
+            logger.info(f"  ✓ Pods found: {len(context.pod_statuses)}")
+            logger.info(f"  ✓ Upstream dependencies: {len(context.upstream_dependencies)}")
+            logger.info(f"  ✓ Downstream dependencies: {len(context.downstream_dependencies)}")
+            logger.info(f"  ✓ Logs collected from: {len(context.recent_logs)} pods")
+            if context.error_rate:
+                logger.info(f"  ✓ Error rate: {context.error_rate.get('error_rate_percent', 0)}%")
+            if context.latency:
+                logger.info(f"  ✓ Latency p50={context.latency.get('p50', 'N/A')}ms, p99={context.latency.get('p99', 'N/A')}ms")
+            
             # Step 2: Convert to Alert and process
-            logger.info("Step 2: Sending to LLM orchestrator...")
+            logger.info("")
+            logger.info("┌" + "─" * 60)
+            logger.info("│ STEP 2: SENDING TO LLM ORCHESTRATOR (CB MODEL)")
+            logger.info("└" + "─" * 60)
             alert = context.to_alert()
             result = self.orchestrator.process_alert(alert)
             
             elapsed = time.time() - start_time
+            
+            # Step 3: Log final result
+            logger.info("")
+            logger.info("┌" + "─" * 60)
+            logger.info("│ STEP 3: PIPELINE COMPLETE")
+            logger.info("└" + "─" * 60)
+            logger.info(f"  Alert:      {alert_name}")
+            logger.info(f"  Result:     {'✅ REMEDIATED' if result.success else '❌ FAILED'}")
+            logger.info(f"  Iterations: {result.iterations}")
+            logger.info(f"  Actions:    {len(result.actions_taken)}")
+            logger.info(f"  Time:       {elapsed:.1f}s")
             
             # Step 3: Return result
             return {
@@ -982,17 +1011,50 @@ def alertmanager_webhook():
         payload = request.json
         alerts = payload.get("alerts", [])
         
-        logger.info(f"Received {len(alerts)} alert(s) from AlertManager")
+        logger.info("")
+        logger.info("█" * 70)
+        logger.info("█  ALERTMANAGER WEBHOOK RECEIVED")
+        logger.info("█" * 70)
+        logger.info(f"  Total alerts in payload: {len(alerts)}")
+        
+        # Log each alert briefly
+        for i, alert in enumerate(alerts):
+            labels = alert.get("labels", {})
+            status = alert.get("status", "unknown")
+            logger.info(f"")
+            logger.info(f"  Alert {i+1}: {labels.get('alertname', 'Unknown')}")
+            logger.info(f"    Status:    {status}")
+            logger.info(f"    Severity:  {labels.get('severity', 'unknown')}")
+            logger.info(f"    Namespace: {labels.get('namespace', 'unknown')}")
+            logger.info(f"    Service:   {labels.get('service') or labels.get('app') or 'unknown'}")
         
         results = []
         for alert in alerts:
             # Only process firing alerts
             if alert.get("status") != "firing":
-                logger.info(f"Skipping non-firing alert: {alert.get('labels', {}).get('alertname')}")
+                logger.info(f"  ⏭️  Skipping non-firing alert: {alert.get('labels', {}).get('alertname')}")
                 continue
+            
+            logger.info("")
+            logger.info("─" * 70)
+            logger.info(f"  🚨 PROCESSING FIRING ALERT: {alert.get('labels', {}).get('alertname')}")
+            logger.info("─" * 70)
             
             result = pipeline.process_alert(alert)
             results.append(result)
+            
+            # Log result
+            logger.info("")
+            logger.info(f"  📊 RESULT: {'✅ SUCCESS' if result.get('success') else '❌ FAILED'}")
+            logger.info(f"     Status: {result.get('status')}")
+            logger.info(f"     Iterations: {result.get('iterations', 0)}")
+            logger.info(f"     Actions: {result.get('actions_taken', 0)}")
+        
+        logger.info("")
+        logger.info("█" * 70)
+        logger.info(f"█  WEBHOOK PROCESSING COMPLETE - {len(results)} alert(s) processed")
+        logger.info("█" * 70)
+        logger.info("")
         
         return jsonify({
             "status": "processed",
