@@ -239,6 +239,20 @@ class MCPKubernetesClient:
                             success=True,
                             result=str(result)
                         )
+        
+        except ExceptionGroup as eg:
+            # Handle TaskGroup/ExceptionGroup errors (Python 3.11+)
+            error_messages = []
+            for exc in eg.exceptions:
+                error_messages.append(f"{type(exc).__name__}: {exc}")
+            full_error = "; ".join(error_messages)
+            logger.error(f"Tool call failed (ExceptionGroup): {full_error}")
+            return ToolCallResult(
+                tool_name=tool_name,
+                success=False,
+                result=None,
+                error=full_error
+            )
                         
         except Exception as e:
             logger.error(f"Tool call failed: {e}")

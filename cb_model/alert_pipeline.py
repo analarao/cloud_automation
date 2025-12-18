@@ -49,6 +49,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger("alert_pipeline")
 
+# Silence werkzeug health check spam
+class HealthCheckFilter(logging.Filter):
+    def filter(self, record):
+        # Filter out health check GET requests
+        if 'GET /health' in record.getMessage():
+            return False
+        return True
+
+logging.getLogger('werkzeug').addFilter(HealthCheckFilter())
+
 
 # =============================================================================
 # Configuration
@@ -1055,39 +1065,40 @@ def alertmanager_webhook():
         alerts = payload.get("alerts", [])
         target_ns = config.target_namespace
         
+        # Filter to only target namespace alerts first
+        target_alerts = [
+            a for a in alerts 
+            if a.get("labels", {}).get("namespace") == target_ns
+        ]
+        
+        # Skip logging entirely if no relevant alerts
+        if not target_alerts:
+            return jsonify({"status": "skipped", "reason": "no alerts for target namespace", "alerts_received": len(alerts)})
+        
         logger.info("")
         logger.info("█" * 70)
         logger.info("█  ALERTMANAGER WEBHOOK RECEIVED")
         logger.info("█" * 70)
-        logger.info(f"  Total alerts in payload: {len(alerts)}")
-        logger.info(f"  Target namespace filter: {target_ns}")
+        logger.info(f"  Alerts for {target_ns}: {len(target_alerts)} (filtered from {len(alerts)} total)")
         
-        # Log each alert briefly
-        for i, alert in enumerate(alerts):
+        # Log only target namespace alerts
+        for i, alert in enumerate(target_alerts):
             labels = alert.get("labels", {})
             status = alert.get("status", "unknown")
-            alert_ns = labels.get("namespace", "unknown")
             logger.info(f"")
             logger.info(f"  Alert {i+1}: {labels.get('alertname', 'Unknown')}")
             logger.info(f"    Status:    {status}")
             logger.info(f"    Severity:  {labels.get('severity', 'unknown')}")
-            logger.info(f"    Namespace: {alert_ns} {'✓' if alert_ns == target_ns else '(skip - not target namespace)'}")
             logger.info(f"    Service:   {labels.get('service') or labels.get('app') or 'unknown'}")
         
         results = []
-        for alert in alerts:
+        for alert in target_alerts:
             labels = alert.get("labels", {})
             alert_name = labels.get("alertname", "Unknown")
-            alert_ns = labels.get("namespace", "")
             
             # Filter 1: Only process firing alerts
             if alert.get("status") != "firing":
                 logger.info(f"  ⏭️  Skipping non-firing alert: {alert_name}")
-                continue
-            
-            # Filter 2: Only process alerts from target namespace
-            if alert_ns != target_ns:
-                logger.info(f"  ⏭️  Skipping alert from wrong namespace: {alert_name} (namespace={alert_ns}, target={target_ns})")
                 continue
             
             # Filter 3: Deduplication - skip if recently processed
