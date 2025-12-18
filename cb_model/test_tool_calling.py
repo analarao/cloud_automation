@@ -89,7 +89,7 @@ def test_simple_completion(client: OpenAI):
 def test_tool_calling(client: OpenAI):
     """Test tool calling capability."""
     print("\n" + "=" * 60)
-    print("TEST 4: Tool Calling (auto)")
+    print("TEST 4: Tool Calling (required)")
     print("=" * 60)
     
     # Define a simple tool
@@ -149,7 +149,7 @@ def test_tool_calling(client: OpenAI):
     try:
         model_id = client.models.list().data[0].id
         
-        # Test with tool_choice="auto"
+        # Test with tool_choice="required" - forces tool call with structured output
         response = client.chat.completions.create(
             model=model_id,
             messages=[
@@ -163,7 +163,7 @@ def test_tool_calling(client: OpenAI):
                 }
             ],
             tools=tools,
-            tool_choice="auto",
+            tool_choice="required",  # Changed from "auto" to "required"
             max_tokens=512
         )
         
@@ -177,8 +177,8 @@ def test_tool_calling(client: OpenAI):
             return True
         else:
             print(f"⚠ No tool calls generated. Model response: {message.content}")
-            print("  This might be expected if the model chose to respond without tools.")
-            return True  # Not necessarily a failure
+            print("  This is unexpected with tool_choice='required'")
+            return False
             
     except Exception as e:
         print(f"✗ Tool calling failed: {e}")
@@ -381,12 +381,11 @@ Please diagnose this issue and take appropriate action to remediate it.
                     "content": """You are CB (Container-Brain), an expert SRE AI assistant.
 Your role is to analyze alerts and take remediation actions using the available tools.
 
-When you receive an alert:
+When you receive an alert, use the available tools to:
 1. First gather more information using kubectl_get, kubectl_describe, or kubectl_logs
-2. Diagnose the root cause
-3. Take remediation action (scale, rollout undo, etc.)
+2. Then take remediation action (scale, rollout undo, etc.)
 
-Always explain your reasoning before taking action."""
+You MUST use the tools to take action. Do not just explain - act."""
                 },
                 {
                     "role": "user",
@@ -394,7 +393,7 @@ Always explain your reasoning before taking action."""
                 }
             ],
             tools=tools,
-            tool_choice="auto",
+            tool_choice="required",  # Force tool usage
             max_tokens=1024
         )
         
@@ -402,7 +401,7 @@ Always explain your reasoning before taking action."""
         
         print("Model Response:")
         if message.content:
-            print(f"  Text: {message.content[:500]}...")
+            print(f"  Text: {message.content[:300]}...")
         
         if message.tool_calls:
             print(f"\n✓ Generated {len(message.tool_calls)} tool call(s):")
@@ -415,8 +414,8 @@ Always explain your reasoning before taking action."""
                     print(f"      Arguments: {tool_call.function.arguments}")
             return True
         else:
-            print("\n⚠ No tool calls generated")
-            return True  # Model might choose to respond without tools
+            print("\n✗ No tool calls generated (unexpected with tool_choice='required')")
+            return False
             
     except Exception as e:
         print(f"✗ Alert analysis test failed: {e}")
