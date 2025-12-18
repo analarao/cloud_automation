@@ -1,28 +1,46 @@
 # Dockerfile for Alert Pipeline
 # Receives alerts from AlertManager, aggregates context, sends to LLM
+# Image: chandrashekar316/capstone:alert-pipeline
+# Optimized for minimal size (~200MB)
 
-FROM python:3.11-slim
+FROM python:3.11-alpine AS builder
+
+WORKDIR /build
+
+# Install build dependencies
+RUN apk add --no-cache gcc musl-dev libffi-dev
+
+# Copy requirements and install to a virtual env
+COPY requirements_alert_pipeline.txt .
+RUN python -m venv /opt/venv && \
+    /opt/venv/bin/pip install --no-cache-dir --upgrade pip && \
+    /opt/venv/bin/pip install --no-cache-dir -r requirements_alert_pipeline.txt
+
+# Final slim image
+FROM python:3.11-alpine
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Install runtime dependencies only (curl for healthcheck)
+RUN apk add --no-cache curl
 
-# Install kubectl for log fetching
-RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
-    && chmod +x kubectl \
-    && mv kubectl /usr/local/bin/
+# Install kubectl (static binary, ~50MB)
+RUN curl -LO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl" && \
+    chmod +x kubectl && \
+    mv kubectl /usr/local/bin/
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy virtual env from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy application code
+# Copy only necessary application code
 COPY alert_pipeline.py .
 COPY orchestrator.py .
 COPY mcp_client.py .
+
+# Non-root user for security
+RUN adduser -D -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
 
 # Expose webhook port
 EXPOSE 9095

@@ -215,6 +215,44 @@ COMPLETION:
         logger.info(f"  Target namespace: {self.target_namespace}")
         logger.info(f"  Max iterations: {self.max_iterations}")
     
+    def _truncate_tool_result(self, result: str, max_chars: int = 3000) -> str:
+        """
+        Truncate tool results to prevent context overflow.
+        
+        The model has 8192 token context limit. Each tool result should be
+        limited to ~3000 chars (~750 tokens) to leave room for:
+        - System prompt: ~1000 tokens
+        - Tools schema: ~1500 tokens  
+        - Alert context: ~500 tokens
+        - Conversation history: ~3000 tokens
+        - Model response: ~1000 tokens
+        
+        Args:
+            result: The tool result string
+            max_chars: Maximum characters to keep (default 3000)
+            
+        Returns:
+            Truncated result with indicator if truncated
+        """
+        if len(result) <= max_chars:
+            return result
+        
+        lines = result.split('\n')
+        truncated_lines = []
+        char_count = 0
+        
+        # Keep lines until we hit the limit
+        for line in lines:
+            if char_count + len(line) + 1 > max_chars - 100:  # Reserve 100 chars for truncation message
+                break
+            truncated_lines.append(line)
+            char_count += len(line) + 1
+        
+        # Add truncation indicator
+        truncated_lines.append(f"\n... [TRUNCATED: {len(result) - char_count} chars / {len(lines) - len(truncated_lines)} lines omitted]")
+        
+        return '\n'.join(truncated_lines)
+    
     def _discover_model(self) -> str:
         """Discover the model name from vLLM."""
         if self.model_name:
@@ -372,6 +410,9 @@ COMPLETION:
         last_tool_call = None  # Track last tool call to detect loops
         repeated_call_count = 0
         
+        # Context management - model has 8192 token limit
+        MAX_CONTEXT_CHARS = 25000  # ~6000 tokens, leaves room for tools/response
+        
         log_section("STARTING LLM REASONING LOOP", "─")
         
         try:
@@ -382,30 +423,42 @@ COMPLETION:
                 logger.info(f"║  ITERATION {iteration}/{self.max_iterations}                                                   ║")
                 logger.info(f"╚══════════════════════════════════════════════════════════════════╝")
                 
-                # Determine tool_choice strategy:
-                # - First 2 iterations: force tool use to ensure real MCP calls
-                # - Later iterations: allow model to finish with "auto"
-                # - If stuck in a loop, switch to auto earlier
-                if iteration <= 2 and repeated_call_count < 2:
-                    # Force tool use for first 2 iterations
-                    tool_choice = "required"
-                    logger.info(f"  Strategy: REQUIRED (forcing tool use)")
-                else:
-                    # Allow model to finish on later iterations
-                    tool_choice = "auto"
-                    logger.info(f"  Strategy: AUTO (can finish or use tools)")
+                # Proactive context management - trim before hitting limit
+                total_chars = sum(len(json.dumps(m)) for m in messages)
+                if total_chars > MAX_CONTEXT_CHARS and len(messages) > 6:
+                    logger.warning(f"  ⚠️ Context at {total_chars} chars - trimming proactively...")
+                    # Keep: system, initial user, last 4 messages
+                    messages = messages[:2] + messages[-4:]
+                    total_chars = sum(len(json.dumps(m)) for m in messages)
+                    logger.info(f"  📏 Trimmed to {len(messages)} messages ({total_chars} chars)")
                 
-                logger.info(f"  Calling LLM...")
+                # ALWAYS force tool use - never switch to auto
+                # This ensures the LLM always uses MCP tools for real K8s operations
+                tool_choice = "required"
+                logger.info(f"  Strategy: REQUIRED (always forcing tool use)")
                 
-                # Call LLM with tools
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=messages,
-                    tools=tools,
-                    tool_choice=tool_choice,
-                    temperature=self.temperature,
-                    max_tokens=1024  # Reduced to leave room for context
-                )
+                logger.info(f"  Calling LLM ({total_chars} chars context)...")
+                
+                # Call LLM with tools (with context length error handling)
+                try:
+                    response = self.client.chat.completions.create(
+                        model=self.model_name,
+                        messages=messages,
+                        tools=tools,
+                        tool_choice=tool_choice,
+                        temperature=self.temperature,
+                        max_tokens=1024  # Reduced to leave room for context
+                    )
+                except Exception as llm_error:
+                    error_str = str(llm_error)
+                    if "context_length_exceeded" in error_str or "context length" in error_str.lower():
+                        logger.warning(f"  ⚠️ Context length exceeded - trimming old messages...")
+                        # Keep system, initial user message, and last 3 exchanges
+                        if len(messages) > 8:
+                            messages = messages[:2] + messages[-6:]
+                            logger.info(f"  📏 Trimmed to {len(messages)} messages, retrying...")
+                            continue  # Retry with trimmed context
+                    raise  # Re-raise other errors
                 
                 choice = response.choices[0]
                 message = choice.message
@@ -480,12 +533,17 @@ COMPLETION:
                             "result": result
                         })
                         
-                        # Add tool result to messages
+                        # Add tool result to messages (TRUNCATED to prevent context overflow)
                         result_content = json.dumps(result) if isinstance(result, dict) else str(result)
+                        truncated_content = self._truncate_tool_result(result_content)
+                        
+                        if len(truncated_content) < len(result_content):
+                            logger.info(f"  │  📏 Result truncated: {len(result_content)} → {len(truncated_content)} chars")
+                        
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tool_call.id,
-                            "content": result_content
+                            "content": truncated_content
                         })
                     
                     # Small delay between MCP calls

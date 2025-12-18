@@ -11,10 +11,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # Configuration
-IMAGE_NAME="alert-pipeline"
-IMAGE_TAG="latest"
+IMAGE_NAME="chandrashekar316/capstone"
+IMAGE_TAG="alert-pipeline"
 NAMESPACE="monitoring"
-REGISTRY="${REGISTRY:-localhost:5000}"  # Change to your registry
 
 # Colors
 RED='\033[0;31m'
@@ -40,31 +39,13 @@ fi
 
 echo -e "${GREEN}Building alert pipeline image...${NC}"
 
-# Check if we need to use local registry or can load directly into kind/minikube
-if command -v kind &> /dev/null && kind get clusters 2>/dev/null | grep -q .; then
-    echo "Detected kind cluster, will load image directly"
-    USE_KIND=true
-elif command -v minikube &> /dev/null && minikube status &> /dev/null; then
-    echo "Detected minikube, will use minikube docker env"
-    eval $(minikube docker-env)
-    USE_MINIKUBE=true
-fi
-
 # Build the image
 docker build -f Dockerfile.alert-pipeline -t ${IMAGE_NAME}:${IMAGE_TAG} .
 
-if [[ "$USE_KIND" == "true" ]]; then
-    echo -e "${GREEN}Loading image into kind...${NC}"
-    kind load docker-image ${IMAGE_NAME}:${IMAGE_TAG}
-    FULL_IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
-elif [[ "$USE_MINIKUBE" == "true" ]]; then
-    FULL_IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
-else
-    echo -e "${GREEN}Pushing to registry ${REGISTRY}...${NC}"
-    docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
-    docker push ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
-    FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-fi
+# Push to Docker Hub
+echo -e "${GREEN}Pushing to Docker Hub (${IMAGE_NAME}:${IMAGE_TAG})...${NC}"
+docker push ${IMAGE_NAME}:${IMAGE_TAG}
+FULL_IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
 
 echo -e "${GREEN}Deploying to Kubernetes...${NC}"
 
