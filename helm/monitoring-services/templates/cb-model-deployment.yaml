@@ -51,11 +51,11 @@ spec:
         image: "{{ .Values.cbModel.image.repository }}:{{ .Values.cbModel.image.tag }}"
         imagePullPolicy: {{ .Values.cbModel.image.pullPolicy | default "Always" }}
         ports:
-        - containerPort: {{ .Values.cbModel.service.grpcPort | default 50051 }}
-          name: grpc
-          protocol: TCP
         - containerPort: {{ .Values.cbModel.service.httpPort | default 8000 }}
           name: http
+          protocol: TCP
+        - containerPort: {{ .Values.cbModel.service.grpcPort | default 50051 }}
+          name: grpc
           protocol: TCP
         env:
         # Model configuration
@@ -79,10 +79,32 @@ spec:
           value: "{{ .Values.cbModel.gpu.enforceEager | default "false" }}"
         {{- end }}
         # Server configuration
+        - name: CB_HTTP_PORT
+          value: "{{ .Values.cbModel.service.httpPort | default 8000 }}"
         - name: CB_GRPC_PORT
           value: "{{ .Values.cbModel.service.grpcPort | default 50051 }}"
-        - name: CB_MAX_WORKERS
-          value: "10"
+        # Tool calling configuration (Phase 1)
+        {{- if .Values.cbModel.toolCalling.enabled }}
+        - name: CB_ENABLE_TOOL_CALLING
+          value: "true"
+        - name: CB_TOOL_CALL_PARSER
+          value: "{{ .Values.cbModel.toolCalling.parser | default "hermes" }}"
+        {{- else }}
+        - name: CB_ENABLE_TOOL_CALLING
+          value: "false"
+        {{- end }}
+        # MCP configuration (Phase 2)
+        {{- if .Values.cbModel.mcp.enabled }}
+        - name: MCP_KUBERNETES_ENABLED
+          value: "true"
+        - name: MCP_TARGET_NAMESPACE
+          value: "{{ .Values.cbModel.mcp.targetNamespace | default "target-services" }}"
+        - name: MCP_NON_DESTRUCTIVE
+          value: "{{ .Values.cbModel.mcp.nonDestructive | default false }}"
+        {{- else }}
+        - name: MCP_KUBERNETES_ENABLED
+          value: "false"
+        {{- end }}
         # HuggingFace token for gated models
         {{- if .Values.cbModel.huggingfaceSecret.enabled }}
         - name: HUGGING_FACE_HUB_TOKEN
@@ -119,30 +141,19 @@ spec:
             nvidia.com/gpu: {{ .Values.cbModel.gpu.count | default 1 | quote }}
             {{- end }}
         {{- if .Values.cbModel.healthCheck.enabled }}
-        # gRPC health check using exec
+        # HTTP health check for vLLM OpenAI server
         livenessProbe:
-          exec:
-            command:
-            - python3
-            - -c
-            - |
-              import grpc
-              import cb_model_pb2_grpc
-              channel = grpc.insecure_channel('localhost:{{ .Values.cbModel.service.grpcPort | default 50051 }}')
-              grpc.channel_ready_future(channel).result(timeout=5)
+          httpGet:
+            path: /health
+            port: {{ .Values.cbModel.service.httpPort | default 8000 }}
           initialDelaySeconds: {{ .Values.cbModel.healthCheck.initialDelaySeconds | default 180 }}
           periodSeconds: {{ .Values.cbModel.healthCheck.periodSeconds | default 30 }}
           timeoutSeconds: {{ .Values.cbModel.healthCheck.timeoutSeconds | default 10 }}
           failureThreshold: {{ .Values.cbModel.healthCheck.failureThreshold | default 5 }}
         readinessProbe:
-          exec:
-            command:
-            - python3
-            - -c
-            - |
-              import grpc
-              channel = grpc.insecure_channel('localhost:{{ .Values.cbModel.service.grpcPort | default 50051 }}')
-              grpc.channel_ready_future(channel).result(timeout=5)
+          httpGet:
+            path: /health
+            port: {{ .Values.cbModel.service.httpPort | default 8000 }}
           initialDelaySeconds: {{ .Values.cbModel.healthCheck.initialDelaySeconds | default 120 }}
           periodSeconds: {{ .Values.cbModel.healthCheck.periodSeconds | default 10 }}
           timeoutSeconds: {{ .Values.cbModel.healthCheck.timeoutSeconds | default 5 }}

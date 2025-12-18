@@ -13,13 +13,22 @@ data:
   ALERTMANAGER_URL: "http://{{ .Values.services.alertmanager.host }}:{{ .Values.services.alertmanager.port }}{{ .Values.services.alertmanager.extras }}" 
   GRPC_SERVER_PORT: "{{ .Values.grpcServer.service.port }}"
   GRPC_SERVER_NAMESPACE: "{{ .Release.Namespace }}"
-  # CB Model (vLLM) - gRPC interface for LLM completions
-  # Use CB_MODEL_GRPC_HOST:CB_MODEL_GRPC_PORT for gRPC connections
+  # CB Model (vLLM) - OpenAI-compatible API with tool calling
+  # Use CB_MODEL_HTTP_URL for OpenAI API calls (recommended for tool calling)
+  # Use CB_MODEL_GRPC_HOST:CB_MODEL_GRPC_PORT for gRPC connections (legacy)
   {{- if .Values.cbModel.enabled }}
+  CB_MODEL_HTTP_HOST: "{{ .Values.cbModel.service.name }}.{{ .Release.Namespace }}.svc.cluster.local"
+  CB_MODEL_HTTP_PORT: "{{ .Values.cbModel.service.httpPort | default 8000 }}"
+  CB_MODEL_HTTP_URL: "http://{{ .Values.cbModel.service.name }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.cbModel.service.httpPort | default 8000 }}"
+  CB_MODEL_OPENAI_BASE_URL: "http://{{ .Values.cbModel.service.name }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.cbModel.service.httpPort | default 8000 }}/v1"
   CB_MODEL_GRPC_HOST: "{{ .Values.cbModel.service.name }}.{{ .Release.Namespace }}.svc.cluster.local"
   CB_MODEL_GRPC_PORT: "{{ .Values.cbModel.service.grpcPort | default 50051 }}"
-  CB_MODEL_HTTP_URL: "http://{{ .Values.cbModel.service.name }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.cbModel.service.httpPort | default 8000 }}"
   CB_MODEL_NAME: "{{ .Values.cbModel.model.name }}"
+  # Tool calling configuration
+  CB_TOOL_CALLING_ENABLED: "{{ .Values.cbModel.toolCalling.enabled | default false }}"
+  CB_TOOL_CALL_PARSER: "{{ .Values.cbModel.toolCalling.parser | default "hermes" }}"
+  # MCP configuration (Phase 2)
+  MCP_TARGET_NAMESPACE: "{{ .Values.cbModel.mcp.targetNamespace | default "target-services" }}"
   {{- end }}
 ---
 # Separate ConfigMap for CB Model system prompt (multiline support)

@@ -1,0 +1,68 @@
+# CB Model - vLLM with Tool Calling Support
+# chandrashekar316/capstone:cb_model-toolcall
+#
+# This image runs vLLM's OpenAI-compatible server with tool calling enabled.
+# Uses Qwen2.5-Coder which supports Hermes-style tool calling.
+#
+# Phase 1: Enable vLLM native tool calling via OpenAI API
+# Phase 2: Add MCP client for kubernetes operations
+# Phase 3: Add orchestrator for agentic loop
+
+FROM vllm/vllm-openai:latest
+
+WORKDIR /app
+
+# Install additional dependencies for MCP client (Phase 2 prep)
+# Node.js for mcp-server-kubernetes, Python packages for MCP client
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g mcp-server-kubernetes \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python MCP client and OpenAI client for orchestration
+RUN pip install --no-cache-dir \
+    grpcio \
+    protobuf \
+    openai \
+    httpx \
+    mcp \
+    && pip cache purge
+
+# Copy the orchestrator and bridge scripts (will be created in Phase 3)
+# For now, we just run vLLM server
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Ports:
+# 8000 - vLLM OpenAI API (with tool calling)
+# 50051 - gRPC bridge (backward compatibility, Phase 3)
+EXPOSE 8000 50051
+
+# Environment variables for vLLM
+ENV PYTHONUNBUFFERED=1 \
+    # Model configuration
+    CB_MODEL_NAME="Qwen/Qwen2.5-Coder-32B-Instruct-AWQ" \
+    CB_MAX_MODEL_LEN=4096 \
+    CB_GPU_MEMORY_UTILIZATION=0.92 \
+    CB_TENSOR_PARALLEL_SIZE=1 \
+    CB_DTYPE=auto \
+    CB_QUANTIZATION=awq \
+    CB_ENFORCE_EAGER=true \
+    # Tool calling configuration
+    CB_ENABLE_TOOL_CALLING=true \
+    CB_TOOL_CALL_PARSER=hermes \
+    # Server configuration
+    CB_HTTP_PORT=8000 \
+    CB_GRPC_PORT=50051 \
+    # MCP configuration (Phase 2)
+    MCP_KUBERNETES_ENABLED=false \
+    MCP_TARGET_NAMESPACE=target-services
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Use custom entrypoint that starts vLLM with tool calling
+ENTRYPOINT ["/app/entrypoint.sh"]

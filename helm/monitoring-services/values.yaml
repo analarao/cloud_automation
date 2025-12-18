@@ -62,22 +62,48 @@ cbModel:
   
   # --- Docker Image Configuration ---
   image:
-    # Custom image with gRPC server wrapper around vLLM
+    # Image with vLLM + tool calling support
+    # Use cb_model-toolcall for Phase 1+ (tool calling enabled)
+    # Use cb_model-slim for legacy gRPC-only mode
     repository: chandrashekar316/capstone
-    tag: cb_model-slim
+    tag: cb_model-toolcall
     pullPolicy: Always
   
   deployment:
     name: cb-model-deployment
   
-  # --- Service Configuration (gRPC) ---
+  # --- Service Configuration ---
   service:
     name: cb-model-service
     type: ClusterIP
-    # gRPC port for LLM completions
-    grpcPort: 50051
-    # Optional: HTTP port for health checks / REST fallback
+    # HTTP port for OpenAI-compatible API (with tool calling)
     httpPort: 8000
+    # gRPC port for backward compatibility (Phase 3)
+    grpcPort: 50051
+  
+  # ==========================================================================
+  # TOOL CALLING CONFIGURATION (Phase 1)
+  # ==========================================================================
+  # Enables vLLM's native tool calling via OpenAI-compatible API.
+  # Qwen2.5-Coder models use Hermes-style tool calling format.
+  # ==========================================================================
+  toolCalling:
+    enabled: true
+    # Tool call parser: hermes (for Qwen2.5), llama3_json, mistral, etc.
+    parser: "hermes"
+  
+  # ==========================================================================
+  # MCP CONFIGURATION (Phase 2 - prepared but disabled)
+  # ==========================================================================
+  # MCP client embedded in CB pod for Kubernetes operations.
+  # Will be enabled in Phase 2.
+  # ==========================================================================
+  mcp:
+    enabled: false
+    # Target namespace for MCP kubernetes operations (RBAC scoped)
+    targetNamespace: "target-services"
+    # Enable non-destructive mode (read + create/update only, no delete)
+    nonDestructive: false
 
   # ==========================================================================
   # MODEL CONFIGURATION - Edit this section to change the LLM model

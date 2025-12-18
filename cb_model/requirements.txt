@@ -1,14 +1,35 @@
 # CB Model (Container-Brain) Dependencies
-# gRPC for service communication
+
+# =============================================================================
+# Phase 1: vLLM with Tool Calling
+# =============================================================================
+
+# gRPC for service communication (backward compatibility)
 grpcio==1.76.0
 grpcio-tools==1.76.0
 protobuf==6.33.0
 
-# vLLM for local LLM inference
+# vLLM for local LLM inference (includes tool calling support)
 vllm>=0.4.0
+
+# OpenAI client for calling vLLM's OpenAI-compatible API
+openai>=1.0.0
+
+# HTTP client
+httpx>=0.25.0
 
 # PyTorch with CUDA support (vLLM dependency)
 # torch is installed as part of vllm
 
 # Utilities
 typing_extensions==4.15.0
+
+# =============================================================================
+# Phase 2: MCP Client (prepared, not used yet)
+# =============================================================================
+# mcp>=0.1.0  # MCP Python client
+
+# =============================================================================
+# Phase 3: Orchestrator (prepared, not used yet)
+# =============================================================================
+# kubernetes>=28.1.0  # For direct K8s API access
