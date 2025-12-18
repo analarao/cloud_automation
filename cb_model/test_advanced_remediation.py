@@ -165,6 +165,38 @@ Investigate NetworkPolicies and ensure proper ingress/egress rules.""",
 
 Use kubectl exec to run diagnostic commands inside the container."""
         )
+    
+    @staticmethod
+    def general_health_check(namespace: str = "target-services") -> Alert:
+        """Test scenario: General health check - investigates real resources."""
+        return Alert(
+            alert_name="HealthCheckRequest",
+            severity="info",
+            namespace=namespace,
+            message=f"""Perform a general health check of the {namespace} namespace:
+1. List all pods and their status
+2. Describe any pods that are not Running/Ready
+3. Check logs of any pods showing issues
+4. Report overall health status
+
+This is a proactive health check - investigate what actually exists in the namespace."""
+        )
+    
+    @staticmethod
+    def investigate_namespace(namespace: str = "target-services") -> Alert:
+        """Test scenario: Investigate namespace - purely diagnostic."""
+        return Alert(
+            alert_name="NamespaceInvestigation",
+            severity="info",
+            namespace=namespace,
+            message=f"""Investigate the current state of namespace '{namespace}':
+1. List all pods with their status
+2. Pick one Running pod and describe it in detail
+3. Get logs from that pod
+4. Report findings
+
+Goal: Demonstrate the full diagnostic workflow using real resources."""
+        )
 
 
 # =============================================================================
@@ -246,7 +278,7 @@ def main():
     parser = argparse.ArgumentParser(description="Advanced Remediation Test Scenarios")
     parser.add_argument(
         "--test",
-        choices=["all", "cpu", "crashloop", "service", "network", "ingress", "port", "memory", "exec"],
+        choices=["all", "cpu", "crashloop", "service", "network", "ingress", "port", "memory", "exec", "health", "investigate"],
         default="all",
         help="Which test scenario to run"
     )
@@ -284,6 +316,8 @@ def main():
         "port": ("Port Blocked Alert", TestScenarios.port_blocked_alert(args.namespace)),
         "memory": ("Memory Pressure Alert", TestScenarios.memory_pressure_alert(args.namespace)),
         "exec": ("Exec Diagnostic Alert", TestScenarios.exec_test_alert(args.namespace)),
+        "health": ("General Health Check", TestScenarios.general_health_check(args.namespace)),
+        "investigate": ("Namespace Investigation", TestScenarios.investigate_namespace(args.namespace)),
     }
     
     # Run selected tests

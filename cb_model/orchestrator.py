@@ -96,67 +96,54 @@ class CBOrchestrator:
     5. Repeat until done
     """
     
-    SYSTEM_PROMPT = """You are an AI-powered Kubernetes operations assistant with FULL access to diagnose and remediate cluster issues. Your role is to analyze alerts and take autonomous remediation actions.
+    SYSTEM_PROMPT = """You are an AI-powered Kubernetes operations assistant with FULL access to diagnose and remediate cluster issues.
 
-CRITICAL INSTRUCTIONS:
-- You MUST use the tool functions provided to interact with Kubernetes
-- DO NOT write JSON in your text responses - use the actual tool functions
-- You can operate on resources in the '{namespace}' namespace (primary) and cluster-wide for diagnosis
-- Always investigate before taking destructive actions
-- Use kubectl_generic for advanced operations like exec, port-forward, network debugging
+CRITICAL TOOL USAGE RULES:
+1. You MUST use the tool_calls mechanism to invoke tools - NEVER write JSON in your text response
+2. When you want to run kubectl_get, CALL the function directly, don't describe it
+3. Use DIFFERENT tools in sequence: get → describe → logs → remediate
+4. If a resource from an alert doesn't exist, investigate existing resources instead
+5. You can operate on resources in the '{namespace}' namespace
+
+DIAGNOSTIC WORKFLOW - Follow these steps in order:
+1. kubectl_get pods - list all pods to see current state
+2. kubectl_describe on specific pods showing issues
+3. kubectl_logs on pods that need investigation  
+4. kubectl_generic for advanced commands (top, exec, events)
+5. Take remediation action (scale, delete, patch, rollout)
+6. Verify the fix with kubectl_get
 
 AVAILABLE TOOLS:
 - kubectl_get: Get/list resources (pods, deployments, services, ingresses, networkpolicies)
 - kubectl_describe: Get detailed resource info including events and conditions
-- kubectl_logs: Get pod logs (use --previous for crashed containers)
+- kubectl_logs: Get pod logs (use previous=true for crashed containers)
 - kubectl_scale: Scale deployments/statefulsets up or down
 - kubectl_delete: Delete pods to restart them, or delete stuck resources
 - kubectl_patch: Patch resources to update configurations
 - kubectl_rollout: Manage deployment rollouts (restart, status, history, undo)
 - kubectl_apply: Apply YAML manifests for configuration changes
-- kubectl_generic: Execute ANY kubectl command - USE THIS FOR:
-  * kubectl exec -it <pod> -- <command>: Run shell commands inside containers
-  * kubectl port-forward: Forward local ports to pods/services
-  * kubectl top pods/nodes: Check resource usage
-  * kubectl get events: Check cluster events
-  * kubectl auth can-i: Check permissions
-  * Network debugging: curl, wget, nslookup, ping from inside pods
+- kubectl_generic: Execute ANY kubectl command including:
+  * top pods - check CPU/memory usage
+  * get events - check cluster events
+  * exec -it <pod> -- <command> - run commands in pods
 - port_forward: Start port forwarding to pods or services
 - stop_port_forward: Stop port forwarding sessions
 
-TOOL ARGUMENT FORMAT (camelCase):
+TOOL ARGUMENT FORMAT (use camelCase):
 - resourceType: "pods", "deployments", "services", "ingresses", "networkpolicies"
-- name: resource name (use "" to list all)
+- name: resource name (use empty string "" to list all)
 - namespace: use "{namespace}" for primary target
 
-ADVANCED OPERATIONS VIA kubectl_generic:
-1. Exec into pods: kubectl exec -it <pod-name> -n {namespace} -- /bin/sh -c "command"
-2. Check connectivity: kubectl exec <pod> -- curl -s http://service:port/health
-3. DNS debugging: kubectl exec <pod> -- nslookup kubernetes.default
-4. Network tracing: kubectl exec <pod> -- wget -qO- --timeout=2 http://target
-5. Port issues: kubectl exec <pod> -- netstat -tlnp
+EXAMPLES OF CORRECT TOOL USAGE:
+- To list pods: call kubectl_get with resourceType="pods", name="", namespace="{namespace}"
+- To describe a pod: call kubectl_describe with resourceType="pods", name="pod-name", namespace="{namespace}"
+- To get logs: call kubectl_logs with name="pod-name", namespace="{namespace}"
+- To check CPU: call kubectl_generic with command="top pods -n {namespace}"
 
-WORKFLOW FOR DIAGNOSIS AND REMEDIATION:
-1. INVESTIGATE: Use kubectl_get to see current state of pods, services, ingresses
-2. DEEP DIVE: Use kubectl_describe for detailed events and conditions
-3. LOGS: Use kubectl_logs to check application logs (--previous for crashed pods)
-4. CONNECTIVITY: Use kubectl_generic + exec to test network connectivity
-5. REMEDIATE: Scale, delete (restart), patch, or apply configurations
-6. VERIFY: Confirm the fix worked with kubectl_get
-
-COMMON ISSUES AND FIXES:
-- CrashLoopBackOff: Check logs --previous, describe pod, fix config or restart
-- ImagePullBackOff: Check image name, secrets, registry access
-- Pending pods: Check events, node resources, PVC issues
-- Service unreachable: Check endpoints, network policies, DNS resolution
-- Port blocked: Check network policies, service selectors, firewall rules
-- Ingress issues: Check ingress controller, TLS secrets, backend services
-
-IMPORTANT: 
-- Only say "REMEDIATION COMPLETE:" when verified the issue is resolved
-- Only say "REMEDIATION FAILED:" when you've exhausted options
-- Be thorough in diagnosis before taking action
-- Document what you find and what you do"""
+COMPLETION:
+- Say "REMEDIATION COMPLETE:" when the issue is verified fixed
+- Say "REMEDIATION FAILED:" when you've exhausted options
+- Always verify your fix worked before declaring completion"""
 
     def __init__(
         self,
@@ -349,6 +336,8 @@ IMPORTANT:
         
         actions_taken = []
         iteration = 0
+        last_tool_call = None  # Track last tool call to detect loops
+        repeated_call_count = 0
         
         try:
             while iteration < self.max_iterations:
@@ -356,11 +345,11 @@ IMPORTANT:
                 logger.info(f"\n--- Iteration {iteration}/{self.max_iterations} ---")
                 
                 # Determine tool_choice strategy:
-                # - First few iterations: force tool use to ensure real MCP calls
+                # - First 2 iterations: force tool use to ensure real MCP calls
                 # - Later iterations: allow model to finish with "auto"
-                # - Last iteration: must be auto to allow finishing
-                if iteration < self.max_iterations - 1 and iteration <= 4:
-                    # Force tool use for first 4 iterations
+                # - If stuck in a loop, switch to auto earlier
+                if iteration <= 2 and repeated_call_count < 2:
+                    # Force tool use for first 2 iterations
                     tool_choice = "required"
                     logger.info("Tool choice: required (forcing tool use)")
                 else:
@@ -388,6 +377,22 @@ IMPORTANT:
                 # Check for tool calls
                 if message.tool_calls:
                     logger.info(f"LLM requested {len(message.tool_calls)} tool call(s)")
+                    
+                    # Detect repeated tool calls (loop detection)
+                    current_call = f"{message.tool_calls[0].function.name}:{message.tool_calls[0].function.arguments}"
+                    if current_call == last_tool_call:
+                        repeated_call_count += 1
+                        logger.warning(f"Detected repeated tool call ({repeated_call_count}x): {message.tool_calls[0].function.name}")
+                        if repeated_call_count >= 2:
+                            # Add guidance to break out of loop
+                            messages.append({
+                                "role": "user", 
+                                "content": "STOP: You are repeating the same tool call. You already have this information. Now use a DIFFERENT tool like kubectl_describe, kubectl_logs, or kubectl_generic to investigate further. If the resource in the alert doesn't exist, investigate what resources DO exist and check their health."
+                            })
+                            continue
+                    else:
+                        repeated_call_count = 0
+                        last_tool_call = current_call
                     
                     # Add assistant message with tool calls to history
                     messages.append({
@@ -442,6 +447,19 @@ IMPORTANT:
                     # No tool calls - LLM is providing final response
                     content = message.content or ""
                     logger.info(f"LLM final response: {content[:300]}...")
+                    
+                    # Detect if LLM is writing JSON in text instead of using tools
+                    if '```json' in content and '"name":' in content and '"arguments":' in content:
+                        logger.warning("LLM wrote JSON in text instead of calling tools - prompting to use actual tools")
+                        messages.append({
+                            "role": "assistant",
+                            "content": content
+                        })
+                        messages.append({
+                            "role": "user",
+                            "content": "IMPORTANT: Do NOT write JSON in your response. You must CALL the tool functions directly using the tool_calls mechanism. Simply invoke the tool - do not describe what you would do."
+                        })
+                        continue
                     
                     # Add to messages
                     messages.append({
