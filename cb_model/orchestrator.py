@@ -324,16 +324,27 @@ Be concise and action-oriented. Start by investigating the current state."""
                 iteration += 1
                 logger.info(f"\n--- Iteration {iteration}/{self.max_iterations} ---")
                 
+                # Determine tool_choice strategy:
+                # - First few iterations: force tool use to gather information
+                # - Later iterations: allow model to decide (auto) or finish
+                # - If we have taken actions, allow finishing
+                if len(actions_taken) == 0 and iteration <= 3:
+                    # Force tool use initially to gather information
+                    tool_choice = "required"
+                    logger.info("Tool choice: required (gathering information)")
+                else:
+                    # Allow model to decide after initial investigation
+                    tool_choice = "auto"
+                    logger.info("Tool choice: auto (can finish or continue)")
+                
                 # Call LLM with tools
-                # Using tool_choice="auto" lets the model decide
-                # Use "required" to force tool use
                 response = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=messages,
                     tools=tools,
-                    tool_choice="auto",
+                    tool_choice=tool_choice,
                     temperature=self.temperature,
-                    max_tokens=2048
+                    max_tokens=1024  # Reduced to leave room for context
                 )
                 
                 choice = response.choices[0]
