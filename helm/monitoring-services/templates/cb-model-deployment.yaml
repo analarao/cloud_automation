@@ -29,6 +29,10 @@ metadata:
     component: ai-decision-engine
 spec:
   replicas: {{ .Values.cbModel.replicas | default 1 }}
+  # Strategy: Recreate - kills old pod before creating new one
+  # Required for GPU workloads where only one pod can use the GPU at a time
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: cb-model
