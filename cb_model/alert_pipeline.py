@@ -1109,7 +1109,6 @@ def alertmanager_webhook():
             logger.info("")
             logger.info("─" * 70)
             logger.info(f"  🚨 PROCESSING FIRING ALERT: {alert_name}")
-            logger.info(f"     Namespace: {alert_ns}")
             logger.info(f"     Fingerprint: {fingerprint}")
             logger.info("─" * 70)
             
