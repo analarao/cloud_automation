@@ -72,8 +72,7 @@ async def test_kubectl_get(namespace: str):
                 "resourceType": "pods",
                 "namespace": namespace,
                 "name": ""  # Empty = list all
-            })  "name": ""  # Empty = list all
-            })
+            })  
             
             if result.success:
                 print(f"✓ kubectl_get succeeded")
