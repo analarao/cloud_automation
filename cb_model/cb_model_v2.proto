@@ -1,0 +1,619 @@
+syntax = "proto3";
+
+package cb_model;
+
+// =============================================================================
+// CB (Container-Brain) LLM Service - V2 with Rich Alert Context
+// =============================================================================
+// This service provides gRPC interface for LLM completions with structured
+// Kubernetes/Istio context for intelligent alert analysis and remediation.
+// =============================================================================
+
+service CBModelService {
+    // Generate a completion from the LLM with full context
+    rpc AnalyzeAlert(AlertAnalysisRequest) returns (AlertAnalysisResponse) {}
+    
+    // Simple completion (backward compatible)
+    rpc GenerateCompletion(CompletionRequest) returns (CompletionResponse) {}
+    
+    // Stream completion tokens as they're generated
+    rpc StreamCompletion(CompletionRequest) returns (stream CompletionChunk) {}
+    
+    // Check if the model is ready to serve requests
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse) {}
+    
+    // Get information about the loaded model
+    rpc GetModelInfo(ModelInfoRequest) returns (ModelInfoResponse) {}
+}
+
+// =============================================================================
+// ALERT ANALYSIS (New V2 Messages)
+// =============================================================================
+
+// Full alert analysis request with rich context
+message AlertAnalysisRequest {
+    // Unique request identifier for tracing
+    string request_id = 1;
+    
+    // The alert that triggered this analysis
+    AlertInfo alert = 2;
+    
+    // Container/Pod context
+    ContainerContext container = 3;
+    
+    // Kubernetes context
+    KubernetesContext kubernetes = 4;
+    
+    // Service mesh context (Istio/Kiali)
+    ServiceMeshContext service_mesh = 5;
+    
+    // Recent logs from the affected container/pod
+    LogContext logs = 6;
+    
+    // Metrics context (current and historical)
+    MetricsContext metrics = 7;
+    
+    // Optional: Custom system prompt override
+    string system_prompt = 8;
+    
+    // Request source identifier
+    string source = 9;
+    
+    // Timestamp when alert was received
+    int64 alert_received_timestamp = 10;
+}
+
+// Information about the triggered alert
+message AlertInfo {
+    // Alert name (e.g., "BookinfoReviewsDown", "HighCPUUsage")
+    string alert_name = 1;
+    
+    // Severity level: critical, warning, info
+    string severity = 2;
+    
+    // Alert state: firing, resolved, pending
+    string state = 3;
+    
+    // Human-readable summary
+    string summary = 4;
+    
+    // Detailed description
+    string description = 5;
+    
+    // PromQL expression that triggered the alert
+    string promql_expression = 6;
+    
+    // Current value of the metric
+    double current_value = 7;
+    
+    // Threshold that was breached
+    double threshold_value = 8;
+    
+    // How long the alert has been firing
+    string duration = 9;
+    
+    // Alert fingerprint (unique identifier)
+    string fingerprint = 10;
+    
+    // Alert labels as key-value pairs
+    map<string, string> labels = 11;
+    
+    // Alert annotations
+    map<string, string> annotations = 12;
+    
+    // Time when alert started firing
+    int64 starts_at = 13;
+    
+    // Time when alert was resolved (if applicable)
+    int64 ends_at = 14;
+    
+    // Generator URL (Prometheus/Alertmanager)
+    string generator_url = 15;
+}
+
+// Container-level context
+message ContainerContext {
+    // Container ID (docker/containerd ID)
+    string container_id = 1;
+    
+    // Container name
+    string container_name = 2;
+    
+    // Full image name with registry
+    string image_name = 3;
+    
+    // Image tag
+    string image_tag = 4;
+    
+    // Image digest/hash (SHA256)
+    string image_hash = 5;
+    
+    // Container state: running, waiting, terminated
+    string state = 6;
+    
+    // Container restart count
+    int32 restart_count = 7;
+    
+    // Last termination reason
+    string last_termination_reason = 8;
+    
+    // Container resource limits
+    ResourceSpec resource_limits = 9;
+    
+    // Container resource requests
+    ResourceSpec resource_requests = 10;
+    
+    // Environment variables (non-sensitive)
+    map<string, string> env_vars = 11;
+    
+    // Container ports
+    repeated ContainerPort ports = 12;
+    
+    // Volume mounts
+    repeated VolumeMount volume_mounts = 13;
+}
+
+// Resource specifications
+message ResourceSpec {
+    string cpu = 1; // e.g., "500m", "2"
+    string memory = 2; // e.g., "512Mi", "2Gi"
+    string gpu = 3; // e.g., "1"
+    string ephemeral_storage = 4;
+}
+
+// Container port definition
+message ContainerPort {
+    string name = 1;
+    int32 container_port = 2;
+    string protocol = 3; // TCP, UDP
+}
+
+// Volume mount information
+message VolumeMount {
+    string name = 1;
+    string mount_path = 2;
+    bool read_only = 3;
+    string volume_type = 4; // emptyDir, configMap, secret, pvc, etc.
+}
+
+// Kubernetes context
+message KubernetesContext {
+    // Namespace information
+    NamespaceInfo namespace = 1;
+    
+    // Pod information
+    PodInfo pod = 2;
+    
+    // Parent workload (Deployment, StatefulSet, DaemonSet, etc.)
+    WorkloadInfo workload = 3;
+    
+    // Service exposing this pod
+    repeated ServiceInfo services = 4;
+    
+    // Related ConfigMaps
+    repeated string config_maps = 5;
+    
+    // Related Secrets (names only, not values)
+    repeated string secrets = 6;
+    
+    // Node information
+    NodeInfo node = 7;
+    
+    // Recent Kubernetes events
+    repeated KubernetesEvent events = 8;
+}
+
+// Namespace information
+message NamespaceInfo {
+    string name = 1;
+    map<string, string> labels = 2;
+    map<string, string> annotations = 3;
+    string status = 4;
+}
+
+// Pod information
+message PodInfo {
+    string name = 1;
+    string uid = 2;
+    string phase = 3; // Pending, Running, Succeeded, Failed, Unknown
+    string pod_ip = 4;
+    string host_ip = 5;
+    string qos_class = 6; // Guaranteed, Burstable, BestEffort
+    map<string, string> labels = 7;
+    map<string, string> annotations = 8;
+    int64 creation_timestamp = 9;
+    string status_message = 10;
+    string status_reason = 11;
+    repeated PodCondition conditions = 12;
+}
+
+// Pod condition
+message PodCondition {
+    string type = 1; // Ready, ContainersReady, Initialized, PodScheduled
+    string status = 2; // True, False, Unknown
+    string reason = 3;
+    string message = 4;
+    int64 last_transition_time = 5;
+}
+
+// Workload information (Deployment, StatefulSet, etc.)
+message WorkloadInfo {
+    string kind = 1; // Deployment, StatefulSet, DaemonSet, ReplicaSet
+    string name = 2;
+    string namespace = 3;
+    int32 replicas = 4;
+    int32 ready_replicas = 5;
+    int32 available_replicas = 6;
+    map<string, string> labels = 7;
+    string strategy_type = 8; // RollingUpdate, Recreate
+    string revision = 9;
+}
+
+// Kubernetes Service information
+message ServiceInfo {
+    string name = 1;
+    string namespace = 2;
+    string type = 3; // ClusterIP, NodePort, LoadBalancer
+    string cluster_ip = 4;
+    string external_ip = 5;
+    repeated ServicePort ports = 6;
+    map<string, string> selector = 7;
+}
+
+// Service port
+message ServicePort {
+    string name = 1;
+    int32 port = 2;
+    int32 target_port = 3;
+    int32 node_port = 4;
+    string protocol = 5;
+}
+
+// Node information
+message NodeInfo {
+    string name = 1;
+    string internal_ip = 2;
+    string external_ip = 3;
+    string kubelet_version = 4;
+    string container_runtime = 5;
+    string os_image = 6;
+    string architecture = 7;
+    bool schedulable = 8;
+    ResourceSpec allocatable = 9;
+    ResourceSpec capacity = 10;
+    repeated NodeCondition conditions = 11;
+}
+
+// Node condition
+message NodeCondition {
+    string type = 1; // Ready, MemoryPressure, DiskPressure, PIDPressure
+    string status = 2;
+    string reason = 3;
+    string message = 4;
+}
+
+// Kubernetes event
+message KubernetesEvent {
+    string type = 1; // Normal, Warning
+    string reason = 2;
+    string message = 3;
+    string source = 4;
+    int64 first_timestamp = 5;
+    int64 last_timestamp = 6;
+    int32 count = 7;
+}
+
+// Service mesh context (Istio/Kiali)
+message ServiceMeshContext {
+    // This service's identity in the mesh
+    string service_name = 1;
+    string service_namespace = 2;
+    
+    // Upstream dependencies (services this service calls)
+    repeated ServiceDependency upstream_dependencies = 3;
+    
+    // Downstream dependencies (services that call this service)
+    repeated ServiceDependency downstream_dependencies = 4;
+    
+    // Virtual services affecting this workload
+    repeated VirtualServiceInfo virtual_services = 5;
+    
+    // Destination rules
+    repeated DestinationRuleInfo destination_rules = 6;
+    
+    // Traffic metrics from Istio
+    TrafficMetrics traffic_metrics = 7;
+    
+    // Sidecar injection status
+    bool sidecar_injected = 8;
+    string sidecar_version = 9;
+    
+    // mTLS status
+    string mtls_mode = 10; // STRICT, PERMISSIVE, DISABLE
+}
+
+// Service dependency information
+message ServiceDependency {
+    string service_name = 1;
+    string namespace = 2;
+    string version = 3;
+    
+    // Traffic metrics for this edge
+    double requests_per_second = 4;
+    double error_rate = 5;
+    double p50_latency_ms = 6;
+    double p99_latency_ms = 7;
+    
+    // Health status
+    string health_status = 8; // healthy, degraded, failure
+}
+
+// Istio VirtualService info
+message VirtualServiceInfo {
+    string name = 1;
+    string namespace = 2;
+    repeated string hosts = 3;
+    repeated string gateways = 4;
+}
+
+// Istio DestinationRule info
+message DestinationRuleInfo {
+    string name = 1;
+    string namespace = 2;
+    string host = 3;
+    string traffic_policy = 4;
+}
+
+// Traffic metrics from Istio/Envoy
+message TrafficMetrics {
+    double requests_per_second = 1;
+    double success_rate = 2;
+    double error_rate_4xx = 3;
+    double error_rate_5xx = 4;
+    double p50_latency_ms = 5;
+    double p95_latency_ms = 6;
+    double p99_latency_ms = 7;
+    int64 active_connections = 8;
+}
+
+// Log context
+message LogContext {
+    // Recent log lines from the container
+    repeated LogEntry recent_logs = 1;
+    
+    // Error logs specifically
+    repeated LogEntry error_logs = 2;
+    
+    // Log source (e.g., "loki", "kubernetes", "stdout")
+    string source = 3;
+    
+    // Time range of logs
+    int64 start_time = 4;
+    int64 end_time = 5;
+    
+    // Total log lines available
+    int32 total_lines = 6;
+}
+
+// Individual log entry
+message LogEntry {
+    int64 timestamp = 1;
+    string level = 2; // INFO, WARN, ERROR, DEBUG
+    string message = 3;
+    string container = 4;
+    string pod = 5;
+    map<string, string> labels = 6;
+}
+
+// Metrics context
+message MetricsContext {
+    // CPU metrics
+    MetricSeries cpu_usage = 1;
+    
+    // Memory metrics
+    MetricSeries memory_usage = 2;
+    
+    // Network metrics
+    MetricSeries network_rx_bytes = 3;
+    MetricSeries network_tx_bytes = 4;
+    
+    // Custom/application metrics
+    repeated MetricSeries custom_metrics = 5;
+    
+    // Predicted values (from CS Model ML)
+    PredictedMetrics predictions = 6;
+}
+
+// Time series metric data
+message MetricSeries {
+    string name = 1;
+    string unit = 2;
+    map<string, string> labels = 3;
+    repeated MetricDataPoint values = 4;
+    double current_value = 5;
+    double avg_value = 6;
+    double max_value = 7;
+    double min_value = 8;
+}
+
+// Single metric data point
+message MetricDataPoint {
+    int64 timestamp = 1;
+    double value = 2;
+}
+
+// ML-predicted metrics from CS Model
+message PredictedMetrics {
+    double predicted_cpu = 1;
+    double predicted_memory = 2;
+    double slo_breach_probability = 3;
+    string prediction_model = 4;
+    int64 prediction_horizon_seconds = 5;
+}
+
+// =============================================================================
+// ALERT ANALYSIS RESPONSE
+// =============================================================================
+
+message AlertAnalysisResponse {
+    // Request ID echoed back
+    string request_id = 1;
+    
+    // Root cause analysis
+    RootCauseAnalysis root_cause = 2;
+    
+    // Recommended remediation actions
+    repeated RemediationAction remediation_actions = 3;
+    
+    // Impact assessment
+    ImpactAssessment impact = 4;
+    
+    // Raw LLM response (for debugging)
+    string raw_response = 5;
+    
+    // Confidence score (0.0 - 1.0)
+    float confidence = 6;
+    
+    // Generation metrics
+    int32 prompt_tokens = 7;
+    int32 completion_tokens = 8;
+    int64 generation_time_ms = 9;
+    
+    // Model used
+    string model_name = 10;
+}
+
+// Root cause analysis result
+message RootCauseAnalysis {
+    // Primary suspected cause
+    string primary_cause = 1;
+    
+    // Contributing factors
+    repeated string contributing_factors = 2;
+    
+    // Evidence supporting this analysis
+    repeated string evidence = 3;
+    
+    // Category of issue
+    string category = 4; // resource, config, dependency, network, application
+}
+
+// Recommended remediation action
+message RemediationAction {
+    // Action priority (1 = highest)
+    int32 priority = 1;
+    
+    // Action type: kubectl, api, manual, script
+    string action_type = 2;
+    
+    // Human-readable description
+    string description = 3;
+    
+    // MCP command (if applicable)
+    MCPCommand mcp_command = 4;
+    
+    // Estimated impact
+    string estimated_impact = 5;
+    
+    // Risk level: low, medium, high
+    string risk_level = 6;
+    
+    // Requires human approval?
+    bool requires_approval = 7;
+    
+    // Rollback command if action fails
+    MCPCommand rollback_command = 8;
+}
+
+// MCP (Model Context Protocol) Command
+message MCPCommand {
+    // Command category
+    string toolkit = 1; // orchestration, application, infrastructure
+    
+    // Command action
+    string action = 2; // scale, restart, rollback, patch, etc.
+    
+    // Target resource
+    string resource_type = 3; // deployment, pod, service, configmap
+    string resource_name = 4;
+    string namespace = 5;
+    
+    // Command parameters
+    map<string, string> parameters = 6;
+    
+    // Raw command (e.g., kubectl command)
+    string raw_command = 7;
+}
+
+// Impact assessment
+message ImpactAssessment {
+    // Affected services
+    repeated string affected_services = 1;
+    
+    // User impact level: none, minimal, moderate, severe, critical
+    string user_impact = 2;
+    
+    // Blast radius description
+    string blast_radius = 3;
+    
+    // SLO impact
+    string slo_impact = 4;
+    
+    // Estimated time to recovery
+    string estimated_recovery_time = 5;
+}
+
+// =============================================================================
+// BACKWARD COMPATIBLE MESSAGES (from V1)
+// =============================================================================
+
+// Simple completion request (backward compatible)
+message CompletionRequest {
+    string prompt = 1;
+    string system_prompt = 2;
+    int32 max_tokens = 3;
+    float temperature = 4;
+    float top_p = 5;
+    string request_id = 6;
+    string source = 7;
+    map<string, string> metadata = 8;
+}
+
+// Simple completion response
+message CompletionResponse {
+    string completion = 1;
+    string request_id = 2;
+    int32 prompt_tokens = 3;
+    int32 completion_tokens = 4;
+    int32 total_tokens = 5;
+    int64 generation_time_ms = 6;
+    string model_name = 7;
+    string finish_reason = 8;
+}
+
+// Streaming chunk
+message CompletionChunk {
+    string text = 1;
+    bool is_final = 2;
+    string request_id = 3;
+    int32 chunk_index = 4;
+}
+
+// Health check
+message HealthCheckRequest {}
+message HealthCheckResponse {
+    bool healthy = 1;
+    bool model_loaded = 2;
+    string status = 3;
+    float gpu_memory_usage = 4;
+}
+
+// Model info
+message ModelInfoRequest {}
+message ModelInfoResponse {
+    string model_name = 1;
+    int32 max_context_length = 2;
+    string dtype = 3;
+    string gpu_info = 4;
+    string quantization = 5;
+}

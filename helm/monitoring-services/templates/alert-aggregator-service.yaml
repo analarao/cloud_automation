@@ -1,0 +1,18 @@
+{{- if .Values.alertAggregator.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.alertAggregator.service.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: alert-aggregator
+spec:
+  type: {{ .Values.alertAggregator.service.type | default "ClusterIP" }}
+  ports:
+  - name: webhook
+    port: {{ .Values.alertAggregator.service.port | default 9095 }}
+    targetPort: 9095
+    protocol: TCP
+  selector:
+    app: alert-aggregator
+{{- end }}

@@ -1,0 +1,91 @@
+{{- if .Values.alertAggregator.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.alertAggregator.deployment.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: alert-aggregator
+spec:
+  replicas: {{ .Values.alertAggregator.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: alert-aggregator
+  template:
+    metadata:
+      labels:
+        app: alert-aggregator
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9095"
+    spec:
+      serviceAccountName: {{ .Values.alertAggregator.serviceAccountName | default "default" }}
+      containers:
+      - name: alert-aggregator
+        image: "{{ .Values.alertAggregator.image.repository }}:{{ .Values.alertAggregator.image.tag }}"
+        imagePullPolicy: {{ .Values.alertAggregator.image.pullPolicy | default "Always" }}
+        ports:
+        - name: webhook
+          containerPort: 9095
+          protocol: TCP
+        env:
+        # Prometheus
+        - name: PROMETHEUS_URL
+          value: "http://{{ .Values.services.prometheus.host }}:{{ .Values.services.prometheus.port }}"
+        # AlertManager
+        - name: ALERTMANAGER_URL
+          value: "http://{{ .Values.services.alertmanager.host }}:{{ .Values.services.alertmanager.port }}"
+        # Kiali
+        - name: KIALI_URL
+          value: "{{ .Values.alertAggregator.kiali.url | default "http://kiali.istio-system.svc.cluster.local:20001" }}"
+        {{- if .Values.alertAggregator.kiali.username }}
+        - name: KIALI_USERNAME
+          value: "{{ .Values.alertAggregator.kiali.username }}"
+        - name: KIALI_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.alertAggregator.kiali.secretName | default "kiali-credentials" }}
+              key: password
+              optional: true
+        {{- end }}
+        # Loki
+        - name: LOKI_URL
+          value: "http://{{ .Values.services.loki.host }}:{{ .Values.services.loki.port }}"
+        # CB Model (LLM)
+        - name: CB_MODEL_HOST
+          value: "{{ .Values.services.cbModel.host }}"
+        - name: CB_MODEL_PORT
+          value: "{{ .Values.services.cbModel.grpcPort }}"
+        # Query settings
+        - name: METRICS_LOOKBACK_MINUTES
+          value: "{{ .Values.alertAggregator.metricsLookbackMinutes | default 30 }}"
+        - name: LOGS_LOOKBACK_MINUTES
+          value: "{{ .Values.alertAggregator.logsLookbackMinutes | default 15 }}"
+        - name: MAX_LOG_LINES
+          value: "{{ .Values.alertAggregator.maxLogLines | default 100 }}"
+        # Timeouts
+        - name: GRPC_TIMEOUT_SECONDS
+          value: "{{ .Values.alertAggregator.grpcTimeoutSeconds | default 120 }}"
+        - name: QUERY_TIMEOUT_SECONDS
+          value: "{{ .Values.alertAggregator.queryTimeoutSeconds | default 30 }}"
+        resources:
+          requests:
+            cpu: {{ .Values.alertAggregator.resources.requests.cpu | default "100m" }}
+            memory: {{ .Values.alertAggregator.resources.requests.memory | default "256Mi" }}
+          limits:
+            cpu: {{ .Values.alertAggregator.resources.limits.cpu | default "500m" }}
+            memory: {{ .Values.alertAggregator.resources.limits.memory | default "512Mi" }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: webhook
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: webhook
+          initialDelaySeconds: 5
+          periodSeconds: 10
+{{- end }}

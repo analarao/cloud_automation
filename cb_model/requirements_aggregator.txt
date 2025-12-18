@@ -1,0 +1,20 @@
+# Alert Context Aggregator - Requirements
+# Python dependencies for the alert context aggregator service
+
+# gRPC
+grpcio>=1.60.0
+grpcio-tools>=1.60.0
+protobuf>=4.25.0
+
+# HTTP/REST
+flask>=3.0.0
+requests>=2.31.0
+
+# Prometheus client library
+prometheus-api-client>=0.5.3
+
+# Utilities
+python-dateutil>=2.8.2
+
+# Optional: Kubernetes client (alternative to direct API calls)
+# kubernetes>=28.1.0

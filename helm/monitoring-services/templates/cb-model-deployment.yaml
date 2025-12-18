@@ -75,6 +75,8 @@ spec:
           value: "{{ .Values.cbModel.gpu.memoryUtilization | default 0.95 }}"
         - name: CB_TENSOR_PARALLEL_SIZE
           value: "{{ .Values.cbModel.gpu.tensorParallelSize | default 1 }}"
+        - name: CB_ENFORCE_EAGER
+          value: "{{ .Values.cbModel.gpu.enforceEager | default "false" }}"
         {{- end }}
         # Server configuration
         - name: CB_GRPC_PORT
@@ -121,7 +123,7 @@ spec:
         livenessProbe:
           exec:
             command:
-            - python
+            - python3
             - -c
             - |
               import grpc
@@ -135,7 +137,7 @@ spec:
         readinessProbe:
           exec:
             command:
-            - python
+            - python3
             - -c
             - |
               import grpc

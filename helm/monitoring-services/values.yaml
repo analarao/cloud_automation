@@ -64,7 +64,7 @@ cbModel:
   image:
     # Custom image with gRPC server wrapper around vLLM
     repository: chandrashekar316/capstone
-    tag: cb_model
+    tag: cb_model-slim
     pullPolicy: Always
   
   deployment:
@@ -87,30 +87,29 @@ cbModel:
     # LOCAL MODEL OPTIONS (change 'name' to switch models):
     # -------------------------------------------------------------------------
     # Small models (< 4GB VRAM):
-    #   - "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    #   - "microsoft/phi-2"
-    #   - "Qwen/Qwen2-1.5B-Instruct"
+    #   - "TinyLlama/TinyLlama-1.1B-Chat-v1.0" (max_len: 2048)
+    #   - "microsoft/phi-2" (max_len: 2048)
+    #   - "Qwen/Qwen2-1.5B-Instruct" (max_len: 32768)
     #
     # Medium models (8-16GB VRAM):
-    #   - "mistralai/Mistral-7B-Instruct-v0.2"
-    #   - "meta-llama/Llama-2-7b-chat-hf"
-    #   - "codellama/CodeLlama-7b-Instruct-hf"
+    #   - "Qwen/Qwen2.5-Coder-7B-Instruct" (max_len: 32768)
+    #   - "Qwen/Qwen2.5-Coder-14B-Instruct-AWQ" (max_len: 32768)
     #
-    # Large models (24GB+ VRAM):
-    #   - "meta-llama/Llama-2-13b-chat-hf"
-    #   - "codellama/CodeLlama-13b-Instruct-hf"
+    # Large models (20-24GB VRAM) - AWQ quantized:
+    #   - "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ" (max_len: 32768, tool calling)
     # -------------------------------------------------------------------------
-    name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    name: "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ"
     
     # Maximum context length (tokens)
-    # NOTE: TinyLlama only supports 2048 max. Larger models may support 4096+
-    maxModelLen: "2048"
+    # Qwen2.5-Coder supports up to 131072, but 32768 is default in config.json
+    # For 24GB GPU with 32B AWQ model: 4096 is safe, 8192 may OOM
+    maxModelLen: "4096"
     
     # Data type: auto, half, float16, bfloat16
     dtype: "auto"
     
-    # Quantization (optional): awq, gptq, squeezellm, or empty for none
-    quantization: ""
+    # Quantization: awq for AWQ models, gptq, squeezellm, or empty for none
+    quantization: "awq"
     
     # Extra vLLM arguments (array of strings)
     extraArgs: []
@@ -146,11 +145,14 @@ cbModel:
     # Number of GPUs to use
     count: 1
     # GPU memory utilization (0.0-1.0)
-    # NOTE: Set to 0.85 to leave headroom for CUDA context and other processes
-    # If you get "Free memory less than desired" errors, lower this further
-    memoryUtilization: "0.85"
+    # NOTE: For 32B AWQ model, we need ~0.92 to have enough for model + KV cache
+    # Model weights = 18.1 GiB, need ~2 GiB for KV cache at 4096 context
+    memoryUtilization: "0.92"
     # Tensor parallel size (for multi-GPU setups)
     tensorParallelSize: "1"
+    # Enforce eager mode (disables CUDA graphs) - saves ~1GB memory but slower
+    # Required for 32B model on 24GB GPU
+    enforceEager: "true"
   
   # --- Storage for model cache ---
   storage:
@@ -201,3 +203,53 @@ cbModel:
   env:
     CUDA_VISIBLE_DEVICES: "0"
 
+# =============================================================================
+# Alert Context Aggregator
+# =============================================================================
+# Receives alerts from AlertManager, aggregates context from Prometheus,
+# Kiali, Loki, and K8s API, then forwards enriched context to CB Model LLM.
+# =============================================================================
+
+alertAggregator:
+  enabled: true
+  replicas: 1
+  
+  image:
+    repository: chandrashekar316/capstone
+    tag: alert_aggregator
+    pullPolicy: Always
+  
+  deployment:
+    name: alert-aggregator-deployment
+  
+  service:
+    name: alert-aggregator-service
+    type: ClusterIP
+    port: 9095
+  
+  # Service account for K8s API access
+  serviceAccountName: "alert-aggregator-sa"
+  
+  # Kiali configuration
+  kiali:
+    url: "http://kiali.istio-system.svc.cluster.local:20001"
+    # Optional: Set if Kiali requires authentication
+    # username: "admin"
+    # secretName: "kiali-credentials"
+  
+  # Query settings
+  metricsLookbackMinutes: 30
+  logsLookbackMinutes: 15
+  maxLogLines: 100
+  
+  # Timeouts
+  grpcTimeoutSeconds: 120
+  queryTimeoutSeconds: 30
+  
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"

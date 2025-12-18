@@ -1,0 +1,102 @@
+# Kubernetes Job to download Qwen2.5-Coder-32B-Instruct-AWQ model
+# 
+# This job downloads the model files to the same PVC used by the CB Model deployment.
+# The model will be cached and available immediately when CB Model pod starts.
+#
+# Usage:
+#   kubectl apply -f download-model-job.yaml
+#   kubectl logs -f job/download-qwen-coder -n monitoring
+#
+# The download takes ~10-20 minutes depending on network speed.
+# Model size: ~18GB (AWQ 4-bit quantized)
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: download-qwen-coder
+  namespace: monitoring
+  labels:
+    app: model-downloader
+spec:
+  ttlSecondsAfterFinished: 3600  # Auto-delete job after 1 hour
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: model-downloader
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: downloader
+        image: python:3.10-slim
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          echo "=============================================="
+          echo "Downloading Qwen2.5-Coder-32B-Instruct-AWQ"
+          echo "=============================================="
+          echo ""
+          echo "Installing huggingface_hub..."
+          pip install -q huggingface_hub
+          
+          echo ""
+          echo "Starting download to /cache/hub/"
+          echo "This may take 10-20 minutes..."
+          echo ""
+          
+          # Download the model
+          # The --local-dir-use-symlinks False ensures all files are copied
+          python3 << 'EOF'
+          from huggingface_hub import snapshot_download
+          import os
+          
+          model_id = "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ"
+          cache_dir = "/cache"
+          
+          print(f"Downloading {model_id}...")
+          print(f"Cache directory: {cache_dir}")
+          
+          # Download to HuggingFace cache format
+          path = snapshot_download(
+              repo_id=model_id,
+              cache_dir=cache_dir,
+              local_dir_use_symlinks=False,
+          )
+          
+          print(f"\n✓ Download complete!")
+          print(f"Model saved to: {path}")
+          
+          # List downloaded files
+          print("\nDownloaded files:")
+          for root, dirs, files in os.walk(path):
+              for f in files:
+                  filepath = os.path.join(root, f)
+                  size_mb = os.path.getsize(filepath) / (1024*1024)
+                  print(f"  {f}: {size_mb:.1f} MB")
+          EOF
+          
+          echo ""
+          echo "=============================================="
+          echo "Download complete!"
+          echo "=============================================="
+          echo ""
+          echo "The model is now cached in the PVC."
+          echo "Restart the CB Model deployment to use it:"
+          echo "  kubectl rollout restart deployment/cb-model-deployment -n monitoring"
+          
+        resources:
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+        volumeMounts:
+        - name: model-cache
+          mountPath: /cache
+      volumes:
+      - name: model-cache
+        persistentVolumeClaim:
+          claimName: cb-model-deployment-cache

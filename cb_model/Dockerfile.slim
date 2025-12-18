@@ -17,13 +17,18 @@ WORKDIR /build
 # Install only build dependencies
 RUN pip install --no-cache-dir grpcio-tools
 
-# Copy and compile proto
-COPY cb_model.proto .
+# Copy and compile proto files (both v1 and v2)
+COPY cb_model.proto cb_model_v2.proto ./
 RUN python -m grpc_tools.protoc \
     -I. \
     --python_out=. \
     --grpc_python_out=. \
-    cb_model.proto
+    cb_model.proto && \
+    python -m grpc_tools.protoc \
+    -I. \
+    --python_out=. \
+    --grpc_python_out=. \
+    cb_model_v2.proto
 
 # Stage 2: Runtime - use vLLM's minimal runtime image
 FROM vllm/vllm-openai:latest
@@ -35,9 +40,11 @@ RUN pip install --no-cache-dir grpcio protobuf && \
     pip cache purge && \
     rm -rf /root/.cache/pip
 
-# Copy compiled proto files from builder
+# Copy compiled proto files from builder (both v1 and v2)
 COPY --from=builder /build/cb_model_pb2.py .
 COPY --from=builder /build/cb_model_pb2_grpc.py .
+COPY --from=builder /build/cb_model_v2_pb2.py .
+COPY --from=builder /build/cb_model_v2_pb2_grpc.py .
 
 # Copy server code
 COPY cb_model_server.py .

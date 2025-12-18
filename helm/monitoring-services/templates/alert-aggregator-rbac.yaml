@@ -1,0 +1,50 @@
+{{- if .Values.alertAggregator.enabled }}
+# ServiceAccount for Alert Aggregator
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.alertAggregator.serviceAccountName | default "alert-aggregator-sa" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: alert-aggregator
+---
+# ClusterRole with permissions to read K8s resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: alert-aggregator-reader
+  labels:
+    app: alert-aggregator
+rules:
+# Read pods, deployments, services, events
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "services", "endpoints", "events", "namespaces", "nodes", "configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch"]
+# Read Istio resources
+- apiGroups: ["networking.istio.io"]
+  resources: ["virtualservices", "destinationrules", "gateways", "serviceentries"]
+  verbs: ["get", "list", "watch"]
+# Read security policies
+- apiGroups: ["security.istio.io"]
+  resources: ["peerauthentications", "authorizationpolicies"]
+  verbs: ["get", "list", "watch"]
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: alert-aggregator-reader-binding
+  labels:
+    app: alert-aggregator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: alert-aggregator-reader
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.alertAggregator.serviceAccountName | default "alert-aggregator-sa" }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}
