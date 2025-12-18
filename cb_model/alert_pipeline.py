@@ -31,6 +31,7 @@ from typing import Optional, Dict, List, Any, Tuple
 from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+
 from flask import Flask, request, jsonify
 from prometheus_api_client import PrometheusConnect
 import requests
