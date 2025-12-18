@@ -1,45 +1,37 @@
 # Dockerfile for Alert Pipeline
 # Receives alerts from AlertManager, aggregates context, sends to LLM
 # Image: chandrashekar316/capstone:alert-pipeline
-# Optimized for minimal size (~200MB)
+# Using slim (Debian) for better MCP compatibility
 
-FROM python:3.11-alpine AS builder
-
-WORKDIR /build
-
-# Install build dependencies
-RUN apk add --no-cache gcc musl-dev libffi-dev
-
-# Copy requirements and install to a virtual env
-COPY requirements_alert_pipeline.txt .
-RUN python -m venv /opt/venv && \
-    /opt/venv/bin/pip install --no-cache-dir --upgrade pip && \
-    /opt/venv/bin/pip install --no-cache-dir -r requirements_alert_pipeline.txt
-
-# Final slim image
-FROM python:3.11-alpine
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install runtime dependencies only (curl for healthcheck)
-RUN apk add --no-cache curl
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install kubectl (static binary, ~50MB)
+# Install kubectl
 RUN curl -LO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl" && \
     chmod +x kubectl && \
     mv kubectl /usr/local/bin/
 
-# Copy virtual env from builder
-COPY --from=builder /opt/venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+# Copy and install Python dependencies
+COPY requirements_alert_pipeline.txt .
+RUN pip install --no-cache-dir -r requirements_alert_pipeline.txt && \
+    pip cache purge
 
-# Copy only necessary application code
+# Verify MCP installed
+RUN python -c "from mcp import ClientSession; print('MCP SDK OK')"
+
+# Copy application code
 COPY alert_pipeline.py .
 COPY orchestrator.py .
 COPY mcp_client.py .
 
 # Non-root user for security
-RUN adduser -D -u 1000 appuser && chown -R appuser:appuser /app
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
 # Expose webhook port
