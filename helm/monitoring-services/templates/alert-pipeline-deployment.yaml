@@ -1,0 +1,101 @@
+# Alert Pipeline Deployment
+# Receives alerts from Alertmanager, aggregates context, and sends to CB Model LLM
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-pipeline
+  namespace: monitoring
+  labels:
+    app: alert-pipeline
+    component: cb-model
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alert-pipeline
+  template:
+    metadata:
+      labels:
+        app: alert-pipeline
+        component: cb-model
+    spec:
+      serviceAccountName: cb-model-sa
+      containers:
+        - name: alert-pipeline
+          image: {{ .Values.alertPipeline.image | default "python:3.11-slim" }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9095
+              name: webhook
+          env:
+            - name: PROMETHEUS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: alert-pipeline-config
+                  key: PROMETHEUS_URL
+            - name: CB_MODEL_OPENAI_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: alert-pipeline-config
+                  key: CB_MODEL_OPENAI_API_URL
+            - name: TARGET_NAMESPACE
+              valueFrom:
+                configMapKeyRef:
+                  name: alert-pipeline-config
+                  key: TARGET_NAMESPACE
+            - name: MAX_ITERATIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: alert-pipeline-config
+                  key: MAX_ITERATIONS
+            - name: WEBHOOK_PORT
+              value: "9095"
+          command:
+            - python
+            - /app/alert_pipeline.py
+          volumeMounts:
+            - name: app-code
+              mountPath: /app
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9095
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9095
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: app-code
+          configMap:
+            name: alert-pipeline-code
+            defaultMode: 0755
+
+---
+# Service for Alert Pipeline
+apiVersion: v1
+kind: Service
+metadata:
+  name: alert-pipeline-service
+  namespace: monitoring
+  labels:
+    app: alert-pipeline
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9095
+      targetPort: 9095
+      protocol: TCP
+      name: webhook
+  selector:
+    app: alert-pipeline

@@ -1,0 +1,141 @@
+# Alertmanager Configuration for CB Model Integration
+# This configures Alertmanager to send alerts to the CB Model Alert Pipeline
+#
+# Deploy with Prometheus Operator:
+#   kubectl apply -f alertmanager-config.yaml -n monitoring
+#
+# Or use with kube-prometheus-stack Helm values:
+#   alertmanager:
+#     config:
+#       # ... paste the alertmanager.yaml content below
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-prometheus-kube-prometheus-alertmanager
+  namespace: monitoring
+  labels:
+    app: kube-prometheus-stack-alertmanager
+stringData:
+  alertmanager.yaml: |
+    global:
+      # Global settings
+      resolve_timeout: 5m
+      
+    # Route tree - how alerts are routed to receivers
+    route:
+      # Default receiver
+      receiver: 'cb-model-webhook'
+      
+      # Group alerts by these labels
+      group_by: ['alertname', 'namespace', 'severity']
+      
+      # Wait before sending initial notification
+      group_wait: 10s
+      
+      # Wait before sending updated notification
+      group_interval: 30s
+      
+      # Wait before resending notification
+      repeat_interval: 4h
+      
+      # Child routes for specific alerts
+      routes:
+        # Critical alerts - send immediately to CB Model
+        - match:
+            severity: critical
+          receiver: 'cb-model-webhook'
+          group_wait: 0s
+          continue: true  # Also send to other receivers
+          
+        # Bookinfo-specific alerts - CB Model handles these
+        - match_re:
+            alertname: "Bookinfo.*"
+          receiver: 'cb-model-webhook'
+          group_wait: 5s
+          
+        # CS (Cognitive Service) prediction alerts
+        - match_re:
+            alertname: "CS_.*"
+          receiver: 'cb-model-webhook'
+          group_wait: 5s
+          
+        # Predicted CPU breach alerts
+        - match:
+            alertname: PredictedCpuBreach
+          receiver: 'cb-model-webhook'
+          group_wait: 5s
+    
+    # Alert receivers
+    receivers:
+      # CB Model Alert Pipeline - receives alerts for autonomous remediation
+      - name: 'cb-model-webhook'
+        webhook_configs:
+          - url: 'http://alert-aggregator-service.monitoring.svc.cluster.local:9095/webhook'
+            send_resolved: true
+            max_alerts: 10
+            http_config:
+              # Optional: Add authentication if needed
+              # bearer_token: 'your-token-here'
+              follow_redirects: true
+      
+      # Fallback null receiver (for testing)
+      - name: 'null'
+    
+    # Inhibition rules - prevent duplicate alerts
+    inhibit_rules:
+      # If critical alert is firing, suppress warnings for same service
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'namespace', 'service']
+        
+      # If service is completely down, suppress other alerts for it
+      - source_match_re:
+          alertname: '.*Down$'
+        target_match_re:
+          alertname: '.*'
+        equal: ['namespace', 'service']
+
+---
+# Service for the Alert Pipeline webhook
+apiVersion: v1
+kind: Service
+metadata:
+  name: alert-aggregator-service
+  namespace: monitoring
+  labels:
+    app: alert-aggregator
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9095
+      targetPort: 9095
+      protocol: TCP
+      name: webhook
+  selector:
+    app: alert-aggregator
+
+---
+# ConfigMap for Alert Pipeline configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alert-pipeline-config
+  namespace: monitoring
+data:
+  # Prometheus URL (adjust for your cluster)
+  PROMETHEUS_URL: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+  
+  # vLLM/CB Model URL
+  CB_MODEL_OPENAI_API_URL: "http://cb-model-service.monitoring.svc.cluster.local:8000/v1"
+  
+  # Target namespace for remediation
+  TARGET_NAMESPACE: "target-services"
+  
+  # Pipeline settings
+  MAX_ITERATIONS: "10"
+  WEBHOOK_PORT: "9095"
+  LOGS_LOOKBACK_SECONDS: "60"
+  METRICS_LOOKBACK_MINUTES: "30"
