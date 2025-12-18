@@ -1,0 +1,75 @@
+# Alertmanager Configuration for CB Model Integration
+# 
+# This is NOT a Helm template - apply directly with:
+#   kubectl apply -f alertmanager-webhook-config.yaml
+#
+# This updates the AlertManager (managed by kube-prometheus-stack) to send
+# alerts to the CB Model Alert Pipeline for autonomous remediation.
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-prometheus-kube-prometheus-alertmanager
+  namespace: monitoring
+  labels:
+    app: kube-prometheus-stack-alertmanager
+    # Keep original helm labels to avoid conflicts
+    app.kubernetes.io/managed-by: Helm
+    meta.helm.sh/release-name: prometheus
+    meta.helm.sh/release-namespace: monitoring
+stringData:
+  alertmanager.yaml: |
+    global:
+      resolve_timeout: 5m
+      
+    # Route tree - how alerts are routed to receivers
+    route:
+      receiver: 'cb-model-webhook'
+      group_by: ['alertname', 'namespace', 'severity']
+      group_wait: 10s
+      group_interval: 30s
+      repeat_interval: 4h
+      
+      routes:
+        # Critical alerts - send immediately
+        - match:
+            severity: critical
+          receiver: 'cb-model-webhook'
+          group_wait: 0s
+          continue: true
+          
+        # Demo alerts for testing
+        - match_re:
+            alertname: "Demo.*"
+          receiver: 'cb-model-webhook'
+          group_wait: 5s
+          
+        # Bookinfo alerts
+        - match_re:
+            alertname: "Bookinfo.*"
+          receiver: 'cb-model-webhook'
+          group_wait: 5s
+          
+        # CS prediction alerts  
+        - match_re:
+            alertname: "CS_.*"
+          receiver: 'cb-model-webhook'
+          group_wait: 5s
+    
+    receivers:
+      # CB Model Alert Pipeline webhook
+      - name: 'cb-model-webhook'
+        webhook_configs:
+          - url: 'http://alert-pipeline-service.monitoring.svc.cluster.local:9095/webhook'
+            send_resolved: true
+            max_alerts: 10
+      
+      # Null receiver for suppressed alerts
+      - name: 'null'
+    
+    inhibit_rules:
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'namespace', 'service']
