@@ -14,16 +14,20 @@ Flow:
 4. Execute tool calls via MCP client
 5. Return results to LLM for further reasoning
 6. Repeat until remediation complete or max iterations
+
+Phase 3: Orchestrator Loop Implementation
 """
 
+import asyncio
 import os
 import json
 import logging
+import time
 from typing import Optional, List, Dict, Any
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, field
 from openai import OpenAI
 
-from mcp_client import MCPKubernetesClient
+from mcp_client import MCPKubernetesClient, MCPTool
 
 # Configure logging
 logging.basicConfig(
@@ -83,12 +87,19 @@ class RemediationResult:
 class CBOrchestrator:
     """
     Orchestrates LLM reasoning and MCP tool execution for alert remediation.
+    
+    This class manages the agentic loop:
+    1. Send context to LLM
+    2. LLM generates tool calls
+    3. Execute tools via MCP
+    4. Send results back to LLM
+    5. Repeat until done
     """
     
     SYSTEM_PROMPT = """You are an AI-powered Kubernetes operations assistant for the Autonomous Operations Platform (AOP). Your role is to analyze alerts and take remediation actions.
 
 IMPORTANT CONSTRAINTS:
-1. You can ONLY operate on resources in the 'target-services' namespace
+1. You can ONLY operate on resources in the '{namespace}' namespace
 2. Always gather information before taking destructive actions
 3. Prefer scaling operations over deletion
 4. Log all actions you take
@@ -96,22 +107,30 @@ IMPORTANT CONSTRAINTS:
 
 AVAILABLE TOOLS:
 You have access to Kubernetes tools via MCP (Model Context Protocol). Use them to:
-- List pods, deployments, services in target-services namespace
-- Get logs from pods to diagnose issues
-- Describe resources for detailed information
-- Scale deployments up or down
-- Restart pods by deleting them (Kubernetes will recreate)
-- Apply or patch resources
+- kubectl_get: List/get pods, deployments, services, etc.
+- kubectl_describe: Get detailed info about resources
+- kubectl_logs: Get pod logs for debugging
+- kubectl_scale: Scale deployments up or down
+- kubectl_delete: Delete pods (they will be recreated by deployment)
+- kubectl_apply: Apply YAML configurations
+- kubectl_patch: Patch resources
+
+NOTE: Tool arguments use camelCase (e.g., resourceType, not resource_type).
+For kubectl_get, provide name="" to list all resources of that type.
 
 REMEDIATION WORKFLOW:
 1. ANALYZE: Understand the alert and what it indicates
-2. INVESTIGATE: Use tools to gather more information
-3. DIAGNOSE: Identify the root cause
+2. INVESTIGATE: Use kubectl_get and kubectl_describe to gather information
+3. DIAGNOSE: Identify the root cause based on evidence
 4. PLAN: Decide on remediation actions
-5. EXECUTE: Take remediation actions
-6. VERIFY: Confirm the issue is resolved
+5. EXECUTE: Take remediation actions (scale, restart, etc.)
+6. VERIFY: Use kubectl_get to confirm the issue is resolved
 
-When you have completed your analysis and remediation, provide a final summary starting with "REMEDIATION COMPLETE:" or "REMEDIATION FAILED:" followed by a description of what you did."""
+When you have completed your analysis and remediation, provide a final summary starting with:
+- "REMEDIATION COMPLETE:" if successful, followed by what you did
+- "REMEDIATION FAILED:" if unsuccessful, followed by the reason
+
+Be concise and action-oriented. Start by investigating the current state."""
 
     def __init__(
         self,
@@ -146,16 +165,16 @@ When you have completed your analysis and remediation, provide a final summary s
             api_key=self.vllm_api_key
         )
         
-        # Initialize MCP client
-        self.mcp_client = MCPKubernetesClient()
-        
         # Track model name
         self.model_name: Optional[str] = None
         
-        # Tools in OpenAI format (populated from MCP)
-        self.tools: List[Dict[str, Any]] = []
+        # Tools in OpenAI format (cached)
+        self._tools_cache: Optional[List[Dict[str, Any]]] = None
         
-        logger.info(f"Orchestrator initialized with vLLM at {self.vllm_base_url}")
+        logger.info(f"Orchestrator initialized")
+        logger.info(f"  vLLM URL: {self.vllm_base_url}")
+        logger.info(f"  Target namespace: {self.target_namespace}")
+        logger.info(f"  Max iterations: {self.max_iterations}")
     
     def _discover_model(self) -> str:
         """Discover the model name from vLLM."""
@@ -175,41 +194,34 @@ When you have completed your analysis and remediation, provide a final summary s
         self.model_name = "Qwen/Qwen2.5-Coder-14B-Instruct-AWQ"
         return self.model_name
     
-    def _load_mcp_tools(self) -> List[Dict[str, Any]]:
-        """Load tools from MCP and convert to OpenAI format."""
-        if self.tools:
-            return self.tools
+    async def _load_mcp_tools_async(self) -> List[Dict[str, Any]]:
+        """Load tools from MCP and convert to OpenAI format (async)."""
+        if self._tools_cache:
+            return self._tools_cache
         
         try:
-            mcp_tools = self.mcp_client.list_tools()
-            
-            # Convert MCP tools to OpenAI function format
-            self.tools = []
-            for tool in mcp_tools:
-                openai_tool = {
-                    "type": "function",
-                    "function": {
-                        "name": tool["name"],
-                        "description": tool.get("description", ""),
-                        "parameters": tool.get("inputSchema", {})
-                    }
-                }
-                self.tools.append(openai_tool)
-            
-            logger.info(f"Loaded {len(self.tools)} tools from MCP")
-            return self.tools
-            
+            async with MCPKubernetesClient(
+                target_namespace=self.target_namespace
+            ) as client:
+                mcp_tools = await client.list_tools()
+                
+                # Convert MCP tools to OpenAI function format
+                self._tools_cache = [tool.to_openai_format() for tool in mcp_tools]
+                
+                logger.info(f"Loaded {len(self._tools_cache)} tools from MCP")
+                return self._tools_cache
+                
         except Exception as e:
             logger.error(f"Failed to load MCP tools: {e}")
             return []
     
-    def _execute_tool_call(
+    async def _execute_tool_call_async(
         self, 
         tool_name: str, 
         arguments: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Execute a tool call via MCP.
+        Execute a tool call via MCP (async).
         
         Args:
             tool_name: Name of the tool to execute
@@ -218,19 +230,31 @@ When you have completed your analysis and remediation, provide a final summary s
         Returns:
             Tool execution result
         """
-        logger.info(f"Executing tool: {tool_name} with args: {arguments}")
+        logger.info(f"Executing tool: {tool_name}")
+        logger.debug(f"Arguments: {json.dumps(arguments, indent=2)}")
         
         try:
-            result = self.mcp_client.execute_tool(tool_name, arguments)
-            logger.info(f"Tool result: {json.dumps(result, indent=2)[:500]}...")
-            return result
+            async with MCPKubernetesClient(
+                target_namespace=self.target_namespace
+            ) as client:
+                result = await client.call_tool(tool_name, arguments)
+                
+                if result.success:
+                    # Truncate long results for logging
+                    result_preview = str(result.result)[:500]
+                    logger.info(f"Tool succeeded: {result_preview}...")
+                    return {"success": True, "result": result.result}
+                else:
+                    logger.error(f"Tool failed: {result.error}")
+                    return {"success": False, "error": result.error}
+                    
         except Exception as e:
             logger.error(f"Tool execution failed: {e}")
-            return {"error": str(e)}
+            return {"success": False, "error": str(e)}
     
-    def process_alert(self, alert: Alert) -> RemediationResult:
+    async def process_alert_async(self, alert: Alert) -> RemediationResult:
         """
-        Process an alert through the LLM reasoning loop.
+        Process an alert through the LLM reasoning loop (async).
         
         Args:
             alert: The alert to process
@@ -238,11 +262,18 @@ When you have completed your analysis and remediation, provide a final summary s
         Returns:
             RemediationResult with details of actions taken
         """
+        start_time = time.time()
+        logger.info(f"=" * 60)
         logger.info(f"Processing alert: {alert.alert_name}")
+        logger.info(f"Severity: {alert.severity}")
+        logger.info(f"Namespace: {alert.namespace}")
+        logger.info(f"=" * 60)
         
-        # Initialize
+        # Discover model
         self._discover_model()
-        tools = self._load_mcp_tools()
+        
+        # Load tools
+        tools = await self._load_mcp_tools_async()
         
         if not tools:
             return RemediationResult(
@@ -253,9 +284,14 @@ When you have completed your analysis and remediation, provide a final summary s
                 error="Failed to load MCP tools"
             )
         
+        logger.info(f"Loaded {len(tools)} tools for LLM")
+        
+        # Build system prompt with namespace
+        system_prompt = self.SYSTEM_PROMPT.format(namespace=self.target_namespace)
+        
         # Build initial messages
         messages = [
-            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"Please analyze and remediate the following alert:\n\n{alert.to_prompt()}"}
         ]
         
@@ -265,14 +301,16 @@ When you have completed your analysis and remediation, provide a final summary s
         try:
             while iteration < self.max_iterations:
                 iteration += 1
-                logger.info(f"Iteration {iteration}/{self.max_iterations}")
+                logger.info(f"\n--- Iteration {iteration}/{self.max_iterations} ---")
                 
                 # Call LLM with tools
+                # Using tool_choice="auto" lets the model decide
+                # Use "required" to force tool use
                 response = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=messages,
                     tools=tools,
-                    tool_choice="auto",  # or "required" for forced tool use
+                    tool_choice="auto",
                     temperature=self.temperature,
                     max_tokens=2048
                 )
@@ -280,70 +318,104 @@ When you have completed your analysis and remediation, provide a final summary s
                 choice = response.choices[0]
                 message = choice.message
                 
-                # Add assistant message to history
-                messages.append({
-                    "role": "assistant",
-                    "content": message.content or "",
-                    "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments
-                            }
-                        }
-                        for tc in (message.tool_calls or [])
-                    ] if message.tool_calls else None
-                })
+                # Log LLM response
+                if message.content:
+                    logger.info(f"LLM: {message.content[:200]}...")
                 
-                # Check if LLM is done (no tool calls)
-                if not message.tool_calls:
+                # Check for tool calls
+                if message.tool_calls:
+                    logger.info(f"LLM requested {len(message.tool_calls)} tool call(s)")
+                    
+                    # Add assistant message with tool calls to history
+                    messages.append({
+                        "role": "assistant",
+                        "content": message.content or "",
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments
+                                }
+                            }
+                            for tc in message.tool_calls
+                        ]
+                    })
+                    
+                    # Execute each tool call
+                    for tool_call in message.tool_calls:
+                        tool_name = tool_call.function.name
+                        try:
+                            arguments = json.loads(tool_call.function.arguments)
+                        except json.JSONDecodeError:
+                            arguments = {}
+                        
+                        logger.info(f"  -> {tool_name}({json.dumps(arguments)})")
+                        
+                        # Execute the tool
+                        result = await self._execute_tool_call_async(tool_name, arguments)
+                        
+                        # Record action
+                        actions_taken.append({
+                            "iteration": iteration,
+                            "tool": tool_name,
+                            "arguments": arguments,
+                            "result": result
+                        })
+                        
+                        # Add tool result to messages
+                        result_content = json.dumps(result) if isinstance(result, dict) else str(result)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": result_content
+                        })
+                    
+                    # Small delay between MCP calls
+                    await asyncio.sleep(0.3)
+                    
+                else:
+                    # No tool calls - LLM is providing final response
                     content = message.content or ""
+                    logger.info(f"LLM final response: {content[:300]}...")
+                    
+                    # Add to messages
+                    messages.append({
+                        "role": "assistant",
+                        "content": content
+                    })
                     
                     # Check for completion markers
-                    if "REMEDIATION COMPLETE:" in content or "REMEDIATION FAILED:" in content:
-                        success = "REMEDIATION COMPLETE:" in content
+                    if "REMEDIATION COMPLETE:" in content:
+                        elapsed = time.time() - start_time
+                        logger.info(f"✓ Remediation completed in {elapsed:.1f}s")
                         return RemediationResult(
-                            success=success,
+                            success=True,
+                            actions_taken=actions_taken,
+                            final_response=content,
+                            iterations=iteration
+                        )
+                    elif "REMEDIATION FAILED:" in content:
+                        elapsed = time.time() - start_time
+                        logger.info(f"✗ Remediation failed after {elapsed:.1f}s")
+                        return RemediationResult(
+                            success=False,
                             actions_taken=actions_taken,
                             final_response=content,
                             iterations=iteration
                         )
                     
-                    # If no tool calls but no completion marker, prompt for action
-                    messages.append({
-                        "role": "user",
-                        "content": "Please continue with your analysis. Use the available tools to investigate or take action. When done, provide a summary starting with 'REMEDIATION COMPLETE:' or 'REMEDIATION FAILED:'."
-                    })
-                    continue
-                
-                # Execute tool calls
-                for tool_call in message.tool_calls:
-                    tool_name = tool_call.function.name
-                    try:
-                        arguments = json.loads(tool_call.function.arguments)
-                    except json.JSONDecodeError:
-                        arguments = {}
-                    
-                    # Execute the tool
-                    result = self._execute_tool_call(tool_name, arguments)
-                    
-                    # Record action
-                    actions_taken.append({
-                        "tool": tool_name,
-                        "arguments": arguments,
-                        "result": result
-                    })
-                    
-                    # Add tool result to messages
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": json.dumps(result)
-                    })
+                    # If no completion marker, prompt for action
+                    if iteration < self.max_iterations - 1:
+                        messages.append({
+                            "role": "user",
+                            "content": "Please continue with your analysis. Use the available tools to investigate or take action. When done, provide a summary starting with 'REMEDIATION COMPLETE:' or 'REMEDIATION FAILED:'."
+                        })
             
             # Max iterations reached
+            elapsed = time.time() - start_time
+            logger.warning(f"Max iterations ({self.max_iterations}) reached after {elapsed:.1f}s")
             return RemediationResult(
                 success=False,
                 actions_taken=actions_taken,
@@ -353,7 +425,10 @@ When you have completed your analysis and remediation, provide a final summary s
             )
             
         except Exception as e:
-            logger.error(f"Error in processing loop: {e}")
+            elapsed = time.time() - start_time
+            logger.error(f"Error in processing loop after {elapsed:.1f}s: {e}")
+            import traceback
+            traceback.print_exc()
             return RemediationResult(
                 success=False,
                 actions_taken=actions_taken,
@@ -361,81 +436,23 @@ When you have completed your analysis and remediation, provide a final summary s
                 iterations=iteration,
                 error=str(e)
             )
-        finally:
-            # Cleanup MCP client
-            self.mcp_client.stop()
     
-    def start(self):
-        """Start the orchestrator (initialize MCP)."""
-        logger.info("Starting orchestrator...")
-        self.mcp_client.start()
-        self._load_mcp_tools()
-        logger.info("Orchestrator started")
-    
-    def stop(self):
-        """Stop the orchestrator."""
-        logger.info("Stopping orchestrator...")
-        self.mcp_client.stop()
-        logger.info("Orchestrator stopped")
-    
-    def __enter__(self):
-        """Context manager entry."""
-        self.start()
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
-        self.stop()
-
-
-# =============================================================================
-# gRPC Service Integration
-# =============================================================================
-
-class CBModelGRPCHandler:
-    """
-    Handles gRPC requests from the alert aggregator or CS Model.
-    Integrates with the orchestrator for LLM-based remediation.
-    """
-    
-    def __init__(self, orchestrator: CBOrchestrator):
-        self.orchestrator = orchestrator
-    
-    def handle_alert(self, alert_data: Dict[str, Any]) -> Dict[str, Any]:
+    def process_alert(self, alert: Alert) -> RemediationResult:
         """
-        Handle an incoming alert from gRPC.
+        Process an alert (sync wrapper for async method).
         
         Args:
-            alert_data: Alert data from protobuf message
+            alert: The alert to process
             
         Returns:
-            Response data for protobuf message
+            RemediationResult with details of actions taken
         """
-        # Parse alert from gRPC data
-        alert = Alert(
-            alert_name=alert_data.get("alertname", "Unknown"),
-            severity=alert_data.get("severity", "warning"),
-            namespace=alert_data.get("namespace", "target-services"),
-            pod_name=alert_data.get("pod"),
-            deployment_name=alert_data.get("deployment"),
-            message=alert_data.get("message", ""),
-            labels=alert_data.get("labels", {}),
-            annotations=alert_data.get("annotations", {}),
-            value=alert_data.get("value"),
-            threshold=alert_data.get("threshold")
-        )
-        
-        # Process alert
-        result = self.orchestrator.process_alert(alert)
-        
-        # Convert to response format
-        return {
-            "success": result.success,
-            "actions_taken": result.actions_taken,
-            "response": result.final_response,
-            "iterations": result.iterations,
-            "error": result.error
-        }
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(self.process_alert_async(alert))
+        finally:
+            loop.close()
 
 
 # =============================================================================
@@ -465,15 +482,15 @@ def main():
     )
     parser.add_argument(
         "--pod",
-        help="Pod name"
+        help="Pod name (optional)"
     )
     parser.add_argument(
         "--deployment",
-        help="Deployment name"
+        help="Deployment name (optional)"
     )
     parser.add_argument(
         "--message",
-        default="High CPU usage detected",
+        default="High CPU usage detected on pod",
         help="Alert message"
     )
     parser.add_argument(
@@ -486,11 +503,6 @@ def main():
         type=int,
         default=10,
         help="Maximum LLM iterations"
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Don't actually execute tools (not implemented yet)"
     )
     
     args = parser.parse_args()
@@ -511,16 +523,24 @@ def main():
     print(f"Alert: {alert.alert_name}")
     print(f"Severity: {alert.severity}")
     print(f"Namespace: {alert.namespace}")
+    if alert.pod_name:
+        print(f"Pod: {alert.pod_name}")
+    if alert.deployment_name:
+        print(f"Deployment: {alert.deployment_name}")
+    print(f"Message: {alert.message}")
     print(f"vLLM URL: {args.vllm_url}")
+    print(f"Max Iterations: {args.max_iterations}")
     print("=" * 60)
     
-    # Run orchestrator
-    with CBOrchestrator(
+    # Create orchestrator
+    orchestrator = CBOrchestrator(
         vllm_base_url=args.vllm_url,
         target_namespace=args.namespace,
         max_iterations=args.max_iterations
-    ) as orchestrator:
-        result = orchestrator.process_alert(alert)
+    )
+    
+    # Process alert
+    result = orchestrator.process_alert(alert)
     
     print("\n" + "=" * 60)
     print("RESULT")
@@ -530,15 +550,22 @@ def main():
     print(f"Actions Taken: {len(result.actions_taken)}")
     if result.error:
         print(f"Error: {result.error}")
-    print("\nFinal Response:")
+    
+    print("\n--- Actions ---")
+    for i, action in enumerate(result.actions_taken, 1):
+        print(f"{i}. [{action.get('iteration', '?')}] {action['tool']}")
+        print(f"   Args: {json.dumps(action['arguments'], indent=6)}")
+        if action.get('result', {}).get('success'):
+            print(f"   Result: OK")
+        else:
+            print(f"   Result: {action.get('result', {}).get('error', 'Unknown')}")
+    
+    print("\n--- Final Response ---")
     print(result.final_response)
     
-    if result.actions_taken:
-        print("\nActions Taken:")
-        for i, action in enumerate(result.actions_taken, 1):
-            print(f"  {i}. {action['tool']}")
-            print(f"     Args: {action['arguments']}")
+    return 0 if result.success else 1
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    sys.exit(main())
