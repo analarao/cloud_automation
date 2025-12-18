@@ -262,7 +262,7 @@ alertAggregator:
   
   image:
     repository: chandrashekar316/capstone
-    tag: alert_aggregator
+    tag: alert-pipeline
     pullPolicy: Always
   
   deployment:
