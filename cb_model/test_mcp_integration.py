@@ -222,18 +222,24 @@ async def test_full_tool_execution(namespace: str):
     print("=" * 60)
     
     try:
+        # Use separate client instances to avoid connection reuse issues
+        # This mimics how the orchestrator would work (reconnect per operation)
+        
+        # 1. Get tools with first client
         async with MCPKubernetesClient() as client:
-            # Simulate what the orchestrator will do
-            
-            # 1. Get tools
             tools = await client.list_tools()
             print(f"  Step 1: Got {len(tools)} tools from MCP")
-            
-            # 2. Simulate a tool call from vLLM (kubectl_get)
-            print(f"  Step 2: Executing kubectl_get on {namespace}")
+        
+        # Small delay to ensure subprocess cleanup
+        await asyncio.sleep(0.5)
+        
+        # 2. Execute tool with second client
+        print(f"  Step 2: Executing kubectl_get on {namespace}")
+        async with MCPKubernetesClient() as client:
             result = await client.call_tool("kubectl_get", {
-                "resource_type": "deployments",
-                "namespace": namespace
+                "resourceType": "deployments",
+                "namespace": namespace,
+                "name": ""  # Empty = list all
             })
             
             if not result.success:
@@ -250,6 +256,9 @@ async def test_full_tool_execution(namespace: str):
                 "content": result.result
             }
             print(f"  Step 4: Formatted result for LLM")
+            
+            print(f"\n✓ Full execution loop works!")
+            return True
             
             print(f"\n✓ Full execution loop works!")
             return True
