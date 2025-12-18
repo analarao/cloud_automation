@@ -1,5 +1,6 @@
-# CB Model RBAC - Scoped to target-services namespace
+# CB Model RBAC - Full Kubernetes Operations Access
 # Allows the CB Model pod to execute kubectl commands via MCP server
+# Supports: exec, port-forward, scale, delete, patch, logs, networking
 {{- if .Values.cbModel.enabled }}
 ---
 # ServiceAccount for CB Model
@@ -12,7 +13,7 @@ metadata:
     app: cb-model
     component: ai-decision-engine
 ---
-# Role with permissions scoped to target-services namespace
+# Role with FULL permissions scoped to target-services namespace
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -21,45 +22,58 @@ metadata:
   labels:
     app: cb-model
 rules:
-# Read operations - always allowed
+# Core resources - full access for diagnosis and remediation
 - apiGroups: [""]
-  resources: ["pods", "pods/log", "services", "endpoints", "events", "configmaps", "secrets"]
+  resources: ["pods", "pods/log", "pods/exec", "pods/portforward", "pods/attach"]
+  verbs: ["get", "list", "watch", "create", "delete"]
+- apiGroups: [""]
+  resources: ["services", "endpoints"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["events"]
   verbs: ["get", "list", "watch"]
-- apiGroups: ["apps"]
-  resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["batch"]
-  resources: ["jobs", "cronjobs"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["networking.k8s.io"]
-  resources: ["ingresses", "networkpolicies"]
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
   verbs: ["get", "list", "watch"]
 
-# Write operations - for remediation
-{{- if not .Values.cbModel.mcp.nonDestructive }}
-- apiGroups: [""]
-  resources: ["pods"]
-  verbs: ["delete"]  # For pod restarts
-- apiGroups: [""]
-  resources: ["configmaps"]
-  verbs: ["create", "update", "patch"]
+# Apps - deployments, replicasets, statefulsets, daemonsets
 - apiGroups: ["apps"]
-  resources: ["deployments", "statefulsets", "daemonsets"]
-  verbs: ["update", "patch"]
+  resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: ["apps"]
   resources: ["deployments/scale", "statefulsets/scale", "replicasets/scale"]
-  verbs: ["update", "patch"]
-{{- end }}
+  verbs: ["get", "update", "patch"]
+
+# Batch - jobs and cronjobs
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Networking - ingresses, network policies, services
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses", "networkpolicies"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingressclasses"]
+  verbs: ["get", "list", "watch"]
 
 # Istio resources (if using service mesh)
 - apiGroups: ["networking.istio.io"]
-  resources: ["virtualservices", "destinationrules", "gateways"]
+  resources: ["virtualservices", "destinationrules", "gateways", "serviceentries"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Autoscaling - HPA
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Policy - PodDisruptionBudgets
+- apiGroups: ["policy"]
+  resources: ["poddisruptionbudgets"]
   verbs: ["get", "list", "watch"]
-{{- if not .Values.cbModel.mcp.nonDestructive }}
-- apiGroups: ["networking.istio.io"]
-  resources: ["virtualservices", "destinationrules"]
-  verbs: ["update", "patch"]
-{{- end }}
 ---
 # RoleBinding - binds the role to the service account
 apiVersion: rbac.authorization.k8s.io/v1
@@ -78,7 +92,54 @@ subjects:
   name: {{ .Values.cbModel.serviceAccountName | default "cb-model-sa" }}
   namespace: {{ .Release.Namespace }}
 ---
-# Additional Role for monitoring namespace (to read its own status)
+# ClusterRole for cluster-wide read access (for diagnosis across namespaces)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cb-model-cluster-reader
+  labels:
+    app: cb-model
+rules:
+# Read nodes for resource diagnosis
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+# Read namespaces
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch"]
+# Read cluster events
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list", "watch"]
+# Read storage classes and PVs for storage issues
+- apiGroups: ["storage.k8s.io"]
+  resources: ["storageclasses"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["persistentvolumes"]
+  verbs: ["get", "list", "watch"]
+# Read ingress classes
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingressclasses"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cb-model-cluster-reader-binding
+  labels:
+    app: cb-model
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cb-model-cluster-reader
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.cbModel.serviceAccountName | default "cb-model-sa" }}
+  namespace: {{ .Release.Namespace }}
+---
+# Role for monitoring namespace (to read its own status)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -88,10 +149,10 @@ metadata:
     app: cb-model
 rules:
 - apiGroups: [""]
-  resources: ["pods", "pods/log", "services", "configmaps"]
+  resources: ["pods", "pods/log", "pods/exec", "services", "configmaps", "events"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["apps"]
-  resources: ["deployments"]
+  resources: ["deployments", "replicasets"]
   verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
