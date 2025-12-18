@@ -143,12 +143,17 @@ TOOL ARGUMENT FORMAT (use camelCase):
 - name: resource name (use empty string "" to list all)
 - namespace: use "{namespace}" for primary target
 
+CRITICAL: ALWAYS include namespace="{namespace}" in EVERY tool call!
+
 EXAMPLES OF CORRECT TOOL USAGE:
-- To list pods: call kubectl_get with resourceType="pods", name="", namespace="{namespace}"
-- To describe a pod: call kubectl_describe with resourceType="pods", name="pod-name", namespace="{namespace}"
-- To get logs: call kubectl_logs with name="pod-name", namespace="{namespace}"
-- To check CPU: call kubectl_generic with command="top pods -n {namespace}"
-- To scale: call kubectl_scale with name="deployment-name", replicas=2, resourceType="deployment", namespace="{namespace}"
+- To list pods: kubectl_get(resourceType="pods", name="", namespace="{namespace}")
+- To describe pod: kubectl_describe(resourceType="pods", name="exact-pod-name", namespace="{namespace}")
+- To get logs: kubectl_logs(name="exact-pod-name", namespace="{namespace}")
+- To scale: kubectl_scale(name="deployment-name", replicas=2, resourceType="deployment", namespace="{namespace}")
+- To delete pod: kubectl_delete(resourceType="pods", name="exact-pod-name", namespace="{namespace}")
+- To check CPU: kubectl_generic(command="top pods -n {namespace}")
+
+IMPORTANT: Use EXACT pod names from kubectl_get output, not placeholder names like "pod-xxxxx"
 
 COMPLETION:
 - Say "REMEDIATION COMPLETE:" when the issue is verified fixed
