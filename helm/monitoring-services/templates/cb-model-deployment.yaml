@@ -66,7 +66,9 @@ spec:
         - name: CB_MODEL_NAME
           value: "{{ .Values.cbModel.model.name }}"
         - name: CB_MAX_MODEL_LEN
-          value: "{{ .Values.cbModel.model.maxModelLen | default 4096 }}"
+          value: "{{ .Values.cbModel.model.maxModelLen | default 8192 }}"
+        - name: CB_MAX_NUM_SEQS
+          value: "{{ .Values.cbModel.model.maxNumSeqs | default 64 }}"
         - name: CB_DTYPE
           value: "{{ .Values.cbModel.model.dtype | default "auto" }}"
         {{- if .Values.cbModel.model.quantization }}
@@ -76,7 +78,7 @@ spec:
         # GPU configuration
         {{- if .Values.cbModel.gpu.enabled }}
         - name: CB_GPU_MEMORY_UTILIZATION
-          value: "{{ .Values.cbModel.gpu.memoryUtilization | default 0.95 }}"
+          value: "{{ .Values.cbModel.gpu.memoryUtilization | default 0.90 }}"
         - name: CB_TENSOR_PARALLEL_SIZE
           value: "{{ .Values.cbModel.gpu.tensorParallelSize | default 1 }}"
         - name: CB_ENFORCE_EAGER

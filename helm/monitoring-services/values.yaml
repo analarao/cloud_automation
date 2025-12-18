@@ -123,19 +123,25 @@ cbModel:
     #
     # Large models (20-24GB VRAM) - AWQ quantized:
     #   - "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ" (max_len: 32768, tool calling)
+    #     WARNING: 32B needs ~18GB for weights, very tight on 24GB GPU
     # -------------------------------------------------------------------------
-    name: "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ"
+    # Using 14B model - fits comfortably on 24GB GPU with room for KV cache
+    name: "Qwen/Qwen2.5-Coder-14B-Instruct-AWQ"
     
     # Maximum context length (tokens)
-    # Qwen2.5-Coder supports up to 131072, but 32768 is default in config.json
-    # For 24GB GPU with 32B AWQ model: 4096 is safe, 8192 may OOM
-    maxModelLen: "4096"
+    # 14B AWQ model: 8192 is safe on 24GB, can try 16384
+    # 32B AWQ model: 2048-4096 max on 24GB (very tight)
+    maxModelLen: "8192"
     
     # Data type: auto, half, float16, bfloat16
     dtype: "auto"
     
     # Quantization: awq for AWQ models, gptq, squeezellm, or empty for none
     quantization: "awq"
+    
+    # Max concurrent sequences (lower = less memory)
+    # Default is 256, reduce to 32-64 for memory-constrained setups
+    maxNumSeqs: "64"
     
     # Extra vLLM arguments (array of strings)
     extraArgs: []
@@ -173,12 +179,12 @@ cbModel:
     # GPU memory utilization (0.0-1.0)
     # NOTE: For 32B AWQ model, we need ~0.92 to have enough for model + KV cache
     # Model weights = 18.1 GiB, need ~2 GiB for KV cache at 4096 context
-    memoryUtilization: "0.92"
+    memoryUtilization: "0.90"
     # Tensor parallel size (for multi-GPU setups)
     tensorParallelSize: "1"
     # Enforce eager mode (disables CUDA graphs) - saves ~1GB memory but slower
-    # Required for 32B model on 24GB GPU
-    enforceEager: "true"
+    # Set to false for 14B model (has enough headroom)
+    enforceEager: "false"
   
   # --- Storage for model cache ---
   storage:
