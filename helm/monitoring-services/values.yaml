@@ -250,14 +250,47 @@ cbModel:
     CUDA_VISIBLE_DEVICES: "0"
 
 # =============================================================================
-# Alert Context Aggregator
+# Alert Pipeline (New - Direct vLLM Orchestrator)
+# =============================================================================
+# Receives alerts from AlertManager, aggregates context from Prometheus/Istio,
+# then directly calls vLLM with MCP tools for autonomous remediation.
+# =============================================================================
+
+alertPipeline:
+  enabled: true
+  image: chandrashekar316/capstone:alert-pipeline
+  imagePullPolicy: Always
+  replicas: 1
+  
+  # vLLM connection
+  vllmUrl: "http://cb-model-service:8000/v1"
+  
+  # Target namespace for remediation
+  targetNamespace: "target-services"
+  
+  # Processing settings
+  maxIterations: 10
+  
+  # Prometheus
+  prometheusUrl: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+  
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# =============================================================================
+# Alert Context Aggregator (Legacy - gRPC based)
 # =============================================================================
 # Receives alerts from AlertManager, aggregates context from Prometheus,
 # Kiali, Loki, and K8s API, then forwards enriched context to CB Model LLM.
 # =============================================================================
 
 alertAggregator:
-  enabled: true
+  enabled: false
   replicas: 1
   
   image:

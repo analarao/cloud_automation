@@ -1,15 +1,16 @@
+{{- if .Values.alertPipeline.enabled }}
 # Alert Pipeline Deployment
 # Receives alerts from Alertmanager, aggregates context, and sends to CB Model LLM
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: alert-pipeline
-  namespace: monitoring
+  namespace: {{ .Release.Namespace }}
   labels:
     app: alert-pipeline
     component: cb-model
 spec:
-  replicas: 1
+  replicas: {{ .Values.alertPipeline.replicas | default 1 }}
   selector:
     matchLabels:
       app: alert-pipeline
@@ -22,47 +23,29 @@ spec:
       serviceAccountName: cb-model-sa
       containers:
         - name: alert-pipeline
-          image: {{ .Values.alertPipeline.image | default "python:3.11-slim" }}
-          imagePullPolicy: IfNotPresent
+          image: {{ .Values.alertPipeline.image }}
+          imagePullPolicy: {{ .Values.alertPipeline.imagePullPolicy | default "Always" }}
           ports:
             - containerPort: 9095
               name: webhook
           env:
             - name: PROMETHEUS_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: alert-pipeline-config
-                  key: PROMETHEUS_URL
+              value: {{ .Values.alertPipeline.prometheusUrl | quote }}
             - name: CB_MODEL_OPENAI_API_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: alert-pipeline-config
-                  key: CB_MODEL_OPENAI_API_URL
+              value: {{ .Values.alertPipeline.vllmUrl | quote }}
             - name: TARGET_NAMESPACE
-              valueFrom:
-                configMapKeyRef:
-                  name: alert-pipeline-config
-                  key: TARGET_NAMESPACE
+              value: {{ .Values.alertPipeline.targetNamespace | quote }}
             - name: MAX_ITERATIONS
-              valueFrom:
-                configMapKeyRef:
-                  name: alert-pipeline-config
-                  key: MAX_ITERATIONS
+              value: {{ .Values.alertPipeline.maxIterations | default 10 | quote }}
             - name: WEBHOOK_PORT
               value: "9095"
-          command:
-            - python
-            - /app/alert_pipeline.py
-          volumeMounts:
-            - name: app-code
-              mountPath: /app
           resources:
             requests:
-              cpu: "100m"
-              memory: "256Mi"
+              cpu: {{ .Values.alertPipeline.resources.requests.cpu | default "100m" | quote }}
+              memory: {{ .Values.alertPipeline.resources.requests.memory | default "256Mi" | quote }}
             limits:
-              cpu: "500m"
-              memory: "512Mi"
+              cpu: {{ .Values.alertPipeline.resources.limits.cpu | default "500m" | quote }}
+              memory: {{ .Values.alertPipeline.resources.limits.memory | default "512Mi" | quote }}
           livenessProbe:
             httpGet:
               path: /health
@@ -75,11 +58,6 @@ spec:
               port: 9095
             initialDelaySeconds: 5
             periodSeconds: 10
-      volumes:
-        - name: app-code
-          configMap:
-            name: alert-pipeline-code
-            defaultMode: 0755
 
 ---
 # Service for Alert Pipeline
@@ -87,7 +65,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: alert-pipeline-service
-  namespace: monitoring
+  namespace: {{ .Release.Namespace }}
   labels:
     app: alert-pipeline
 spec:
@@ -99,3 +77,4 @@ spec:
       name: webhook
   selector:
     app: alert-pipeline
+{{- end }}
