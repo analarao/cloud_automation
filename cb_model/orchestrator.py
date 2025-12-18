@@ -126,7 +126,7 @@ AVAILABLE TOOLS:
 - kubectl_get: Get/list resources (pods, deployments, services, ingresses, networkpolicies)
 - kubectl_describe: Get detailed resource info including events and conditions
 - kubectl_logs: Get pod logs (use previous=true for crashed containers)
-- kubectl_scale: Scale deployments/statefulsets up or down
+- kubectl_scale: Scale deployments/statefulsets. REQUIRED params: name, replicas, resourceType="deployment"
 - kubectl_delete: Delete pods to restart them, or delete stuck resources
 - kubectl_patch: Patch resources to update configurations
 - kubectl_rollout: Manage deployment rollouts (restart, status, history, undo)
@@ -148,6 +148,7 @@ EXAMPLES OF CORRECT TOOL USAGE:
 - To describe a pod: call kubectl_describe with resourceType="pods", name="pod-name", namespace="{namespace}"
 - To get logs: call kubectl_logs with name="pod-name", namespace="{namespace}"
 - To check CPU: call kubectl_generic with command="top pods -n {namespace}"
+- To scale: call kubectl_scale with name="deployment-name", replicas=2, resourceType="deployment", namespace="{namespace}"
 
 COMPLETION:
 - Say "REMEDIATION COMPLETE:" when the issue is verified fixed
