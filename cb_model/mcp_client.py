@@ -209,6 +209,11 @@ class MCPKubernetesClient:
         if not self._initialized:
             await self.connect()
         
+        # Auto-inject namespace if not provided (critical for kubectl_scale and other tools)
+        if self._target_namespace and "namespace" not in arguments:
+            arguments["namespace"] = self._target_namespace
+            logger.debug(f"Auto-injected namespace: {self._target_namespace}")
+        
         logger.info(f"Calling tool: {tool_name}")
         logger.debug(f"Arguments: {json.dumps(arguments, indent=2)}")
         
