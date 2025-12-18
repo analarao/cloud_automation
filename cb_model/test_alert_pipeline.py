@@ -48,12 +48,17 @@ from alert_pipeline import (
 
 
 # =============================================================================
-# Test Alerts - Based on alerts.yaml
+# Test Alerts - SIMULATED PAYLOADS FOR TESTING ONLY
+# =============================================================================
+# NOTE: These are NOT hardcoded alerts in the pipeline!
+# These are MOCK AlertManager payloads used to TEST the pipeline.
+# The actual alert_pipeline.py works with ANY real alert from AlertManager.
+# It extracts service/namespace dynamically from alert labels.
 # =============================================================================
 
 @dataclass
 class TestAlert:
-    """Test alert definition."""
+    """Test alert definition - simulates AlertManager webhook payload."""
     name: str
     payload: Dict[str, Any]
     expected_service: str
@@ -62,7 +67,14 @@ class TestAlert:
 
 
 class TestAlerts:
-    """Collection of test alerts matching alerts.yaml definitions."""
+    """
+    Collection of SIMULATED test alerts for testing the pipeline.
+    
+    These mock the AlertManager webhook payloads that would come from real alerts
+    defined in prometheus/alerts.yaml and prometheus/cs_rules.yml.
+    
+    The alert_pipeline.py is FULLY DYNAMIC and works with ANY alert.
+    """
     
     @staticmethod
     def bookinfo_reviews_down() -> TestAlert:

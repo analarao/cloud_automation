@@ -690,19 +690,42 @@ class AlertContextAggregator:
         
         # Extract identifiers
         alert_name = labels.get("alertname", "UnknownAlert")
-        namespace = labels.get("namespace", self.namespace)
         severity = labels.get("severity", "warning")
         
-        # Try to infer service name from various labels
+        # Try to extract namespace from various label patterns
+        namespace = (
+            labels.get("namespace") or
+            labels.get("target_namespace") or
+            labels.get("destination_service_namespace") or
+            labels.get("source_workload_namespace") or
+            self.namespace  # fallback to default
+        )
+        
+        # Try to infer service name from various labels (in order of preference)
         service_name = (
             labels.get("service") or 
             labels.get("app") or 
             labels.get("deployment") or
-            self._infer_service_from_alert(alert_name)
+            labels.get("target_app") or
+            labels.get("target_service") or
+            labels.get("destination_app") or
+            labels.get("workload") or
+            self._infer_service_from_alert(alert_name, labels)
         )
         
-        # Pod pattern for queries
-        pod_pattern = labels.get("pod", f"{service_name}")
+        # Pod pattern for queries - try various label patterns
+        pod_pattern = (
+            labels.get("pod") or
+            labels.get("target_pod") or
+            f"{service_name}"
+        )
+        # Clean up pod pattern - remove hash suffixes for pattern matching
+        if pod_pattern and '-' in pod_pattern:
+            # e.g., "reviews-v1-abc123-xyz" -> "reviews-v1" for pattern matching
+            parts = pod_pattern.split('-')
+            if len(parts) > 2:
+                # Keep service and version, drop hash suffixes
+                pod_pattern = '-'.join(parts[:-2]) if len(parts[-1]) <= 5 else '-'.join(parts[:-1])
         
         logger.info(f"Aggregating context for alert: {alert_name}")
         logger.info(f"  Namespace: {namespace}, Service: {service_name}")
@@ -799,16 +822,41 @@ class AlertContextAggregator:
         logger.info(f"Context aggregation complete for {alert_name}")
         return context
     
-    def _infer_service_from_alert(self, alert_name: str) -> str:
-        """Try to infer service name from alert name."""
-        # Map known alerts to services
-        alert_service_map = {
-            "BookinfoReviewsDown": "reviews",
-            "BookinfoProductpageDown": "productpage",
-            "BookinfoRatingsDown": "ratings",
-            "BookinfoDetailsDown": "details",
-        }
-        return alert_service_map.get(alert_name, "unknown")
+    def _infer_service_from_alert(self, alert_name: str, labels: Dict) -> str:
+        """
+        Try to infer service name from alert name or labels.
+        This is a FALLBACK - ideally alerts should have explicit service/app labels.
+        """
+        import re
+        
+        # Try various label patterns that might contain service info
+        for label in ["target_app", "target_service", "workload", "pod", "container", 
+                      "destination_service", "source_app", "job"]:
+            if label in labels:
+                value = labels[label]
+                # Extract base service name (remove version suffixes, namespace prefixes, etc.)
+                # e.g., "reviews-v1-xxx" -> "reviews", "target-services/reviews" -> "reviews"
+                match = re.match(r'^(?:.*[/])?([a-zA-Z][a-zA-Z0-9-]*?)(?:-v\d+)?(?:-[a-f0-9]+)?(?:-[a-z0-9]+)?$', value)
+                if match:
+                    return match.group(1)
+                # Simple case - just return the value cleaned up
+                return value.split('/')[-1].split('-v')[0].split('-')[0]
+        
+        # Try to parse service name from alert name patterns
+        # e.g., "BookinfoReviewsDown" -> "reviews", "ServiceXDown" -> "servicex"
+        patterns = [
+            r'(?:Bookinfo)?([A-Z][a-z]+)(?:Down|Error|Unhealthy|High|Critical)',
+            r'([a-z_]+)_(?:down|error|unhealthy)',
+            r'CS_([A-Z][a-z_]+)_',  # CS_ prefixed alerts
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, alert_name)
+            if match:
+                return match.group(1).lower()
+        
+        # Last resort - return unknown
+        return "unknown"
 
 
 # =============================================================================
