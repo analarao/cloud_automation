@@ -1,16 +1,22 @@
 # Dockerfile for Alert Pipeline
 # Receives alerts from AlertManager, aggregates context, sends to LLM
 # Image: chandrashekar316/capstone:alert-pipeline
-# Using slim (Debian) for better MCP compatibility
+# Using slim (Debian) with Node.js for MCP server
 
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies including Node.js
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# Install mcp-server-kubernetes globally
+RUN npm install -g @anthropic-ai/mcp-server-kubernetes
 
 # Install kubectl
 RUN curl -LO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl" && \
@@ -30,7 +36,7 @@ COPY alert_pipeline.py .
 COPY orchestrator.py .
 COPY mcp_client.py .
 
-# Non-root user for security
+# Non-root user for security (but needs kubectl access)
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
