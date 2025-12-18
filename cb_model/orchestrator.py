@@ -171,6 +171,18 @@ Be concise and action-oriented. Start by investigating the current state."""
         # Tools in OpenAI format (cached)
         self._tools_cache: Optional[List[Dict[str, Any]]] = None
         
+        # Essential tools for remediation (reduces token usage)
+        # Full list has 22 tools which uses ~6000 tokens!
+        self.essential_tools = [
+            "kubectl_get",
+            "kubectl_describe", 
+            "kubectl_logs",
+            "kubectl_scale",
+            "kubectl_delete",
+            "kubectl_patch",
+            "kubectl_rollout",
+        ]
+        
         logger.info(f"Orchestrator initialized")
         logger.info(f"  vLLM URL: {self.vllm_base_url}")
         logger.info(f"  Target namespace: {self.target_namespace}")
@@ -205,8 +217,17 @@ Be concise and action-oriented. Start by investigating the current state."""
             ) as client:
                 mcp_tools = await client.list_tools()
                 
+                # Filter to essential tools only to reduce token usage
+                # Full 22 tools = ~6000 tokens, filtered = ~1500 tokens
+                filtered_tools = [
+                    tool for tool in mcp_tools 
+                    if tool.name in self.essential_tools
+                ]
+                
+                logger.info(f"Filtered {len(mcp_tools)} tools to {len(filtered_tools)} essential tools")
+                
                 # Convert MCP tools to OpenAI function format
-                self._tools_cache = [tool.to_openai_format() for tool in mcp_tools]
+                self._tools_cache = [tool.to_openai_format() for tool in filtered_tools]
                 
                 logger.info(f"Loaded {len(self._tools_cache)} tools from MCP")
                 return self._tools_cache
