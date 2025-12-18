@@ -124,9 +124,9 @@ DIAGNOSTIC WORKFLOW - Follow these steps in order:
 
 AVAILABLE TOOLS:
 - kubectl_get: Get/list resources (pods, deployments, services, ingresses, networkpolicies)
+- kubectl_scale: Scale deployments/statefulsets. REQUIRED params: name, replicas, resourceType="deployment", namespace="{namespace}"
 - kubectl_describe: Get detailed resource info including events and conditions
 - kubectl_logs: Get pod logs (use previous=true for crashed containers)
-- kubectl_scale: Scale deployments/statefulsets. REQUIRED params: name, replicas, resourceType="deployment"
 - kubectl_delete: Delete pods to restart them, or delete stuck resources
 - kubectl_patch: Patch resources to update configurations
 - kubectl_rollout: Manage deployment rollouts (restart, status, history, undo)
