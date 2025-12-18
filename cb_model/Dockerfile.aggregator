@@ -12,21 +12,13 @@ COPY requirements_aggregator.txt .
 RUN pip install --no-cache-dir -r requirements_aggregator.txt && \
     pip cache purge
 
-# Copy proto files and compile
+# Copy proto files and compile (V2 proto only - V1 is deprecated)
 COPY cb_model_v2.proto .
 RUN python -m grpc_tools.protoc \
     -I. \
     --python_out=. \
     --grpc_python_out=. \
     cb_model_v2.proto
-
-# Also compile the original proto for backward compatibility
-COPY cb_model.proto .
-RUN python -m grpc_tools.protoc \
-    -I. \
-    --python_out=. \
-    --grpc_python_out=. \
-    cb_model.proto
 
 # Copy application code
 COPY alert_context_aggregator.py .

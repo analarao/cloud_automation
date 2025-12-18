@@ -1,20 +1,47 @@
-# CB Model (Container-Brain) - Local LLM with gRPC Interface
+# CB Model (Container-Brain) - Agentic LLM with MCP Integration
 
-The CB Model is the AI Decision Engine for the Autonomous Operations Platform. It runs a local LLM via vLLM and exposes a gRPC interface for other services (AlertManager, CS Model) to request completions and MCP command execution.
+The CB Model is the AI Decision Engine for the Autonomous Operations Platform. It runs a vLLM-based LLM with OpenAI-compatible API, integrated with MCP (Model Context Protocol) for real Kubernetes operations.
 
-## Architecture
+## Architecture (Phase 1-3 Complete)
 
 ```
-┌─────────────────┐     gRPC (protobuf)     ┌─────────────────┐
-│   CS Model      │ ───────────────────────▶│                 │
-│   (Alerts)      │                         │    CB Model     │
-└─────────────────┘                         │    (vLLM)       │
-                                            │                 │
-┌─────────────────┐     gRPC (protobuf)     │  ┌───────────┐  │
-│  AlertManager   │ ───────────────────────▶│  │   LLM     │  │
-│   (Webhooks)    │                         │  │  (GPU)    │  │
-└─────────────────┘                         │  └───────────┘  │
-                                            └─────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              CB Model Pod                                    │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │  vLLM OpenAI Server (:8000)                                            │ │
+│  │  - Qwen/Qwen2.5-Coder-14B-Instruct-AWQ                                │ │
+│  │  - --enable-auto-tool-choice                                          │ │
+│  │  - --tool-call-parser hermes                                          │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                      ▲                                       │
+│                                      │ HTTP                                  │
+│                                      ▼                                       │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │  Orchestrator (orchestrator.py)                                        │ │
+│  │  - Agentic reasoning loop                                             │ │
+│  │  - Tool call execution                                                │ │
+│  │  - MCP client management                                              │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                      ▲                                       │
+│                                      │ JSON-RPC (stdio)                      │
+│                                      ▼                                       │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │  MCP Server (mcp-server-kubernetes)                                    │ │
+│  │  - kubectl_get, kubectl_describe, kubectl_logs                        │ │
+│  │  - kubectl_apply, kubectl_delete, kubectl_scale                       │ │
+│  │  - Real K8s operations via ServiceAccount RBAC                        │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │  gRPC Bridge (:50051) - Optional backward compatibility               │ │
+│  │  - Receives AlertAnalysisRequest                                      │ │
+│  │  - Routes to Orchestrator                                             │ │
+│  │  - Returns AlertAnalysisResponse                                      │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  ServiceAccount: cb-model-sa (RBAC scoped to target-services namespace)     │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Quick Start
@@ -25,289 +52,180 @@ The CB Model is the AI Decision Engine for the Autonomous Operations Platform. I
 - NVIDIA GPU drivers and nvidia-docker installed
 - kubectl configured
 - Helm 3.x installed
+- Node.js (for mcp-server-kubernetes)
 
-### 2. Download Model Locally (Optional - for faster startup)
-
-The model will be downloaded automatically on first startup, but you can pre-download it:
-
-```bash
-# Option A: Pre-download to a PersistentVolume
-# Create a job to download the model
-kubectl apply -f - <<EOF
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: download-llm-model
-  namespace: monitoring
-spec:
-  template:
-    spec:
-      containers:
-      - name: downloader
-        image: python:3.10-slim
-        command:
-        - bash
-        - -c
-        - |
-          pip install huggingface_hub
-          python -c "
-          from huggingface_hub import snapshot_download
-          snapshot_download('TinyLlama/TinyLlama-1.1B-Chat-v1.0', 
-                           cache_dir='/models')
-          "
-        volumeMounts:
-        - name: model-cache
-          mountPath: /models
-      restartPolicy: Never
-      volumes:
-      - name: model-cache
-        persistentVolumeClaim:
-          claimName: cb-model-deployment-cache
-  backoffLimit: 1
-EOF
-```
+### 2. Build and Deploy
 
 ```bash
-# Option B: Download locally and copy to cluster
-pip install huggingface_hub
-python -c "from huggingface_hub import snapshot_download; snapshot_download('TinyLlama/TinyLlama-1.1B-Chat-v1.0')"
+# Navigate to cb_model directory
+cd /home/big_scroll/Documents/cloud_automation/cb_model
+
+# Build the Docker image with tool calling + MCP
+docker build -f Dockerfile.toolcall -t chandrashekar316/capstone:cb_model-toolcall .
+
+# Push to registry
+docker push chandrashekar316/capstone:cb_model-toolcall
+
+# Deploy with Helm
+cd ../helm/monitoring-services
+helm upgrade --install monitoring-services . --namespace monitoring --create-namespace
+
+# Create target-services namespace (for RBAC scope)
+kubectl create namespace target-services --dry-run=client -o yaml | kubectl apply -f -
+
+# Watch the pod come up
+kubectl get pods -n monitoring -l app=cb-model -w
 ```
 
-### 3. Deploy with Helm
+### 3. Test Tool Calling (Phase 1)
 
 ```bash
-# Navigate to the helm chart directory
-cd helm/monitoring-services
+# Port-forward to the vLLM server
+kubectl port-forward svc/cb-model-service 8000:8000 -n monitoring &
 
-# Install/upgrade the chart
-helm upgrade --install monitoring-services . \
-  --namespace monitoring \
-  --create-namespace
-
-# Check deployment status
-kubectl get pods -n monitoring -l app=cb-model
-kubectl logs -f deployment/cb-model-deployment -n monitoring
+# Run tool calling test
+python test_tool_calling.py
 ```
 
-### 4. Changing the Model
-
-Edit `values.yaml`:
-
-```yaml
-cbModel:
-  model:
-    # Change this to use a different model
-    name: "mistralai/Mistral-7B-Instruct-v0.2"
-    maxModelLen: "4096"
-```
-
-Then upgrade the Helm release:
-```bash
-helm upgrade monitoring-services . -n monitoring
-```
-
-### 5. For Gated Models (e.g., Llama 2)
+### 4. Test MCP Integration (Phase 2)
 
 ```bash
-# Create HuggingFace token secret
-kubectl create secret generic hf-token-secret \
-  --from-literal=token=YOUR_HUGGINGFACE_TOKEN \
-  -n monitoring
-
-# Enable in values.yaml
-cbModel:
-  huggingfaceSecret:
-    enabled: true
-    name: "hf-token-secret"
+# Run MCP integration test
+python test_mcp_integration.py --vllm-url http://localhost:8000/v1 --namespace target-services
 ```
 
-## Testing the LLM
-
-### Method 1: Port-Forward and Test Script
+### 5. Test Orchestrator (Phase 3)
 
 ```bash
-# Terminal 1: Port-forward the gRPC service
-kubectl port-forward svc/cb-model-service 50051:50051 -n monitoring
-
-# Terminal 2: Generate gRPC code and run tests
-cd cb_model
-
-# Generate Python gRPC code from proto
-python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. cb_model.proto
-
-# Run the test client
-python test_cb_model.py
-
-# Run specific tests
-python test_cb_model.py --test health
-python test_cb_model.py --test alert
+# Test the full orchestrator loop with a simulated alert
+python orchestrator.py \
+  --vllm-url http://localhost:8000/v1 \
+  --alert-name "PodNotReady" \
+  --message "Pod reviews-v1 is not ready" \
+  --namespace target-services \
+  --max-iterations 5
 ```
 
-### Method 2: From Within the Cluster
+## Key Files
 
-```bash
-# Deploy a test pod
-kubectl run -it grpc-test --image=python:3.10-slim -n monitoring --rm -- bash
+| File | Purpose |
+|------|---------|
+| `orchestrator.py` | Main agentic loop - LLM reasoning + MCP tool execution |
+| `mcp_client.py` | Async Python wrapper for mcp-server-kubernetes |
+| `grpc_bridge.py` | gRPC server for backward compatibility with alert aggregator |
+| `Dockerfile.toolcall` | Docker image with vLLM + MCP + orchestrator |
+| `entrypoint.sh` | Container startup script |
+| `test_tool_calling.py` | Phase 1 test - vLLM tool calling |
+| `test_mcp_integration.py` | Phase 2 test - MCP integration |
+| `cb_model_v2.proto` | gRPC protocol definition (V2 with rich context) |
 
-# Inside the pod:
-pip install grpcio grpcio-tools
-# Copy the proto file and generate code
-# Then run the test client
-```
-
-### Method 3: Quick Health Check
-
-```bash
-# Check if the pod is running
-kubectl get pods -n monitoring -l app=cb-model
-
-# Check logs for model loading
-kubectl logs -f deployment/cb-model-deployment -n monitoring
-
-# Look for: "vLLM model loaded successfully!"
-```
-
-### Method 4: grpcurl (if installed)
-
-```bash
-# Install grpcurl: https://github.com/fullstorydev/grpcurl
-kubectl port-forward svc/cb-model-service 50051:50051 -n monitoring &
-
-# Health check
-grpcurl -plaintext localhost:50051 cb_model.CBModelService/HealthCheck
-
-# Model info
-grpcurl -plaintext localhost:50051 cb_model.CBModelService/GetModelInfo
-
-# Generate completion
-grpcurl -plaintext -d '{
-  "prompt": "What is Kubernetes?",
-  "max_tokens": 100,
-  "source": "grpcurl-test"
-}' localhost:50051 cb_model.CBModelService/GenerateCompletion
-```
-
-## Configuration Reference
-
-### Environment Variables
+## Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CB_MODEL_NAME` | HuggingFace model name | `TinyLlama/TinyLlama-1.1B-Chat-v1.0` |
-| `CB_MAX_MODEL_LEN` | Maximum context length | `4096` |
-| `CB_GPU_MEMORY_UTILIZATION` | GPU memory usage (0.0-1.0) | `0.95` |
-| `CB_TENSOR_PARALLEL_SIZE` | Number of GPUs for tensor parallelism | `1` |
-| `CB_DTYPE` | Data type (auto, half, float16, bfloat16) | `auto` |
-| `CB_QUANTIZATION` | Quantization method (awq, gptq, squeezellm) | `""` |
-| `CB_GRPC_PORT` | gRPC server port | `50051` |
-| `CB_SYSTEM_PROMPT` | Default system prompt for all requests | (see values.yaml) |
-| `HUGGING_FACE_HUB_TOKEN` | HuggingFace token for gated models | `""` |
+| `CB_MODEL_NAME` | HuggingFace model name | `Qwen/Qwen2.5-Coder-14B-Instruct-AWQ` |
+| `CB_MAX_MODEL_LEN` | Maximum context length | `8192` |
+| `CB_GPU_MEMORY_UTILIZATION` | GPU memory usage (0.0-1.0) | `0.90` |
+| `CB_ENABLE_TOOL_CALLING` | Enable vLLM tool calling | `true` |
+| `CB_TOOL_CALL_PARSER` | Tool call parser (hermes) | `hermes` |
+| `CB_ENABLE_GRPC_BRIDGE` | Enable gRPC backward compat | `false` |
+| `CB_HTTP_PORT` | vLLM OpenAI API port | `8000` |
+| `CB_GRPC_PORT` | gRPC bridge port | `50051` |
+| `CB_TARGET_NAMESPACE` | K8s namespace for MCP operations | `target-services` |
 
-### values.yaml Key Sections
+## RBAC Configuration
 
-```yaml
-cbModel:
-  # Enable/disable the CB Model
-  enabled: true
-  
-  # Model selection - EDIT THIS TO CHANGE MODELS
-  model:
-    name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    maxModelLen: "4096"
-  
-  # System prompt - EDIT THIS TO CHANGE LLM BEHAVIOR
-  systemPrompt: |
-    You are CB (Container-Brain), an expert SRE...
-  
-  # GPU settings
-  gpu:
-    enabled: true
-    count: 1
-    memoryUtilization: "0.95"
+The CB Model uses a ServiceAccount with RBAC scoped to the `target-services` namespace:
+
+**Read Operations (always allowed):**
+- pods, pods/log, services, endpoints, events, configmaps
+- deployments, replicasets, statefulsets, daemonsets
+- Istio: virtualservices, destinationrules, gateways
+
+**Write Operations (for remediation):**
+- pods (delete for restarts)
+- deployments/scale, statefulsets/scale
+- configmaps (create, update, patch)
+
+## Alert Aggregator Integration
+
+The Alert Context Aggregator receives alerts from AlertManager, enriches them with context, and forwards to CB Model:
+
+```
+AlertManager → Alert Aggregator → gRPC Bridge → Orchestrator → MCP → K8s
+                    ↓
+             Context from:
+             - Prometheus (metrics)
+             - Loki (logs)
+             - Kiali (service mesh)
+             - K8s API (resources)
 ```
 
 ## Troubleshooting
 
 ### Pod Stuck in Pending
-
 ```bash
-# Check for GPU availability
 kubectl describe node | grep -A5 "nvidia.com/gpu"
-
-# Check if NVIDIA device plugin is running
 kubectl get pods -n kube-system | grep nvidia
 ```
 
-### Model Loading Slow
-
-- First startup downloads the model (~1-10 mins depending on size)
-- Check logs: `kubectl logs -f deployment/cb-model-deployment -n monitoring`
-- Consider pre-downloading (see Quick Start section)
-
-### Out of Memory
-
+### MCP Server Not Available
 ```bash
-# Reduce GPU memory utilization
-cbModel:
-  gpu:
-    memoryUtilization: "0.8"
+# Check if mcp-server-kubernetes is installed
+npx @anthropic/mcp-server-kubernetes --version
 
-# Or use a smaller model
-cbModel:
-  model:
-    name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    maxModelLen: "2048"
+# Check Node.js
+node --version
 ```
 
+### Tool Calls Not Executing
+- Ensure `CB_ENABLE_TOOL_CALLING=true`
+- Check vLLM logs for tool parsing errors
+- Verify model supports Hermes tool call format
+
 ### gRPC Connection Refused
-
 ```bash
-# Check if service is exposed
 kubectl get svc cb-model-service -n monitoring
-
-# Check if pod is ready
-kubectl get pods -n monitoring -l app=cb-model
-
-# Check pod logs for errors
 kubectl logs deployment/cb-model-deployment -n monitoring
 ```
 
-## Integration with Other Services
+## Development
 
-### From CS Model Service
+### Running Locally (without K8s)
 
-```python
-from cb_model_client import CBModelClient
+```bash
+# Start vLLM server manually
+vllm serve Qwen/Qwen2.5-Coder-14B-Instruct-AWQ \
+  --enable-auto-tool-choice \
+  --tool-call-parser hermes \
+  --port 8000
 
-client = CBModelClient()
-response = client.generate_completion(
-    prompt="Analyze this alert: CPU usage at 95% on cart-service",
-    source="cs_model"
-)
-print(response.completion)
+# In another terminal, run orchestrator
+python orchestrator.py --vllm-url http://localhost:8000/v1 --alert-name "Test"
 ```
 
-### From AlertManager Webhook
+### Adding New MCP Tools
 
-```python
-# In your webhook handler
-from cb_model_client import generate_completion
-
-mcp_command = generate_completion(
-    prompt=f"Alert: {alert_data}. Generate remediation commands.",
-    source="alertmanager"
-)
-```
+The MCP client uses `mcp-server-kubernetes` which provides kubectl operations. To add custom tools, modify `mcp_client.py`.
 
 ## File Structure
 
 ```
 cb_model/
-├── cb_model.proto          # gRPC service definition
-├── cb_model_server.py      # vLLM gRPC server
-├── cb_model_client.py      # Client library for other services
-├── test_cb_model.py        # Test script
-├── Dockerfile              # Container image definition
-├── requirements.txt        # Python dependencies
-└── README.md               # This file
+├── orchestrator.py          # Agentic LLM + MCP orchestration loop
+├── mcp_client.py            # Async MCP client wrapper
+├── grpc_bridge.py           # gRPC server (backward compat)
+├── alert_context_aggregator.py  # Alert enrichment service
+├── cb_model_v2.proto        # gRPC protocol definition
+├── cb_model_v2_pb2.py       # Generated protobuf code
+├── cb_model_v2_pb2_grpc.py  # Generated gRPC code
+├── Dockerfile.toolcall      # Main Docker image
+├── Dockerfile.aggregator    # Alert aggregator image
+├── entrypoint.sh            # Container entrypoint
+├── requirements.txt         # Python dependencies
+├── requirements_aggregator.txt  # Alert aggregator dependencies
+├── test_tool_calling.py     # Phase 1 test
+├── test_mcp_integration.py  # Phase 2 test
+├── download-model-job.yaml  # K8s job to pre-download model
+└── README.md                # This file
 ```
