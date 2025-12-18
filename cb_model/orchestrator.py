@@ -124,8 +124,7 @@ WORKFLOW:
 4. Verify with kubectl_get that the issue is resolved
 5. End with "REMEDIATION COMPLETE:" or "REMEDIATION FAILED:"
 
-IMPORTANT: Only say "REMEDIATION COMPLETE:" or "REMEDIATION FAILED:" when you are truly finished and have verified the result."""
-- "REMEDIATION FAILED:" if unsuccessful, followed by the reason
+IMPORTANT: Only say "REMEDIATION COMPLETE:" or "REMEDIATION FAILED:" when you are truly finished and have verified the result.
 
 Be concise and action-oriented. Start by investigating the current state."""
 
