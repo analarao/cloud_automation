@@ -42,6 +42,8 @@ spec:
         app: cb-model
         component: ai-decision-engine
     spec:
+      # ServiceAccount for RBAC - allows MCP server to execute kubectl commands
+      serviceAccountName: {{ .Values.cbModel.serviceAccountName | default "cb-model-sa" }}
       {{- if .Values.cbModel.nodeSelector }}
       nodeSelector:
         {{- toYaml .Values.cbModel.nodeSelector | nindent 8 }}
@@ -109,6 +111,18 @@ spec:
           value: "{{ .Values.cbModel.mcp.nonDestructive | default false }}"
         {{- else }}
         - name: MCP_KUBERNETES_ENABLED
+          value: "false"
+        {{- end }}
+        # gRPC bridge configuration (Phase 2)
+        {{- if .Values.cbModel.grpcBridge.enabled }}
+        - name: CB_ENABLE_GRPC_BRIDGE
+          value: "true"
+        - name: CB_MAX_ITERATIONS
+          value: "{{ .Values.cbModel.grpcBridge.maxIterations | default 10 }}"
+        - name: CB_MODEL_OPENAI_API_URL
+          value: "http://localhost:{{ .Values.cbModel.service.httpPort | default 8000 }}/v1"
+        {{- else }}
+        - name: CB_ENABLE_GRPC_BRIDGE
           value: "false"
         {{- end }}
         # HuggingFace token for gated models

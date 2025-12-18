@@ -1,11 +1,12 @@
 #!/bin/bash
 # CB Model Entrypoint Script
 # Starts vLLM OpenAI server with tool calling enabled
+# Optionally starts gRPC bridge for MCP integration
 
 set -e
 
 echo "=============================================="
-echo "CB Model - vLLM with Tool Calling"
+echo "CB Model - vLLM with Tool Calling + MCP"
 echo "=============================================="
 echo ""
 
@@ -22,6 +23,10 @@ HTTP_PORT="${CB_HTTP_PORT:-8000}"
 ENABLE_TOOL_CALLING="${CB_ENABLE_TOOL_CALLING:-true}"
 TOOL_CALL_PARSER="${CB_TOOL_CALL_PARSER:-hermes}"
 
+# gRPC bridge settings
+ENABLE_GRPC_BRIDGE="${CB_ENABLE_GRPC_BRIDGE:-false}"
+GRPC_PORT="${CB_GRPC_PORT:-50051}"
+
 echo "Configuration:"
 echo "  Model: ${MODEL_NAME}"
 echo "  Max Model Length: ${MAX_MODEL_LEN}"
@@ -34,6 +39,8 @@ echo "  Enforce Eager: ${ENFORCE_EAGER}"
 echo "  HTTP Port: ${HTTP_PORT}"
 echo "  Tool Calling: ${ENABLE_TOOL_CALLING}"
 echo "  Tool Call Parser: ${TOOL_CALL_PARSER}"
+echo "  gRPC Bridge: ${ENABLE_GRPC_BRIDGE}"
+echo "  gRPC Port: ${GRPC_PORT}"
 echo ""
 
 # Build vLLM command
@@ -79,5 +86,41 @@ echo "Command: vllm ${VLLM_ARGS[*]}"
 echo "=============================================="
 echo ""
 
-# Start vLLM
+# Function to cleanup background processes
+cleanup() {
+    echo "Shutting down..."
+    if [ -n "${GRPC_PID}" ]; then
+        kill ${GRPC_PID} 2>/dev/null || true
+    fi
+    exit 0
+}
+
+trap cleanup SIGTERM SIGINT
+
+# Start gRPC bridge in background if enabled
+if [ "${ENABLE_GRPC_BRIDGE}" = "true" ]; then
+    echo "Starting gRPC bridge on port ${GRPC_PORT}..."
+    
+    # Wait for vLLM to be ready before starting gRPC bridge
+    # We start it in background after a delay
+    (
+        # Wait for vLLM to start (check health endpoint)
+        echo "Waiting for vLLM to start..."
+        for i in $(seq 1 60); do
+            if curl -s http://localhost:${HTTP_PORT}/health > /dev/null 2>&1; then
+                echo "vLLM is ready!"
+                break
+            fi
+            sleep 5
+        done
+        
+        # Start gRPC bridge
+        echo "Starting gRPC bridge..."
+        cd /app
+        python grpc_bridge.py --port ${GRPC_PORT}
+    ) &
+    GRPC_PID=$!
+fi
+
+# Start vLLM (foreground)
 exec vllm "${VLLM_ARGS[@]}"

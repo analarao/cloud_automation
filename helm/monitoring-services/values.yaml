@@ -81,6 +81,9 @@ cbModel:
     # gRPC port for backward compatibility (Phase 3)
     grpcPort: 50051
   
+  # ServiceAccount for RBAC (MCP server needs kubectl access)
+  serviceAccountName: "cb-model-sa"
+  
   # ==========================================================================
   # TOOL CALLING CONFIGURATION (Phase 1)
   # ==========================================================================
@@ -93,17 +96,28 @@ cbModel:
     parser: "hermes"
   
   # ==========================================================================
-  # MCP CONFIGURATION (Phase 2 - prepared but disabled)
+  # MCP CONFIGURATION (Phase 2)
   # ==========================================================================
-  # MCP client embedded in CB pod for Kubernetes operations.
-  # Will be enabled in Phase 2.
+  # MCP server (mcp-server-kubernetes) embedded in CB pod.
+  # Provides kubectl operations via MCP protocol.
   # ==========================================================================
   mcp:
-    enabled: false
+    enabled: true
     # Target namespace for MCP kubernetes operations (RBAC scoped)
     targetNamespace: "target-services"
     # Enable non-destructive mode (read + create/update only, no delete)
     nonDestructive: false
+  
+  # ==========================================================================
+  # GRPC BRIDGE CONFIGURATION (Phase 2)
+  # ==========================================================================
+  # gRPC bridge connects alert aggregator to vLLM+MCP orchestrator.
+  # Enable this for production deployments where alerts come via gRPC.
+  # ==========================================================================
+  grpcBridge:
+    enabled: false  # Set to true to enable gRPC bridge
+    port: 50051
+    maxIterations: 10  # Max LLM reasoning iterations per alert
 
   # ==========================================================================
   # MODEL CONFIGURATION - Edit this section to change the LLM model

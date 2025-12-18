@@ -1,0 +1,112 @@
+# CB Model RBAC - Scoped to target-services namespace
+# Allows the CB Model pod to execute kubectl commands via MCP server
+{{- if .Values.cbModel.enabled }}
+---
+# ServiceAccount for CB Model
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.cbModel.serviceAccountName | default "cb-model-sa" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: cb-model
+    component: ai-decision-engine
+---
+# Role with permissions scoped to target-services namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cb-model-target-services-role
+  namespace: {{ .Values.cbModel.mcp.targetNamespace | default "target-services" }}
+  labels:
+    app: cb-model
+rules:
+# Read operations - always allowed
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "services", "endpoints", "events", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses", "networkpolicies"]
+  verbs: ["get", "list", "watch"]
+
+# Write operations - for remediation
+{{- if not .Values.cbModel.mcp.nonDestructive }}
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["delete"]  # For pod restarts
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["create", "update", "patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets", "daemonsets"]
+  verbs: ["update", "patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments/scale", "statefulsets/scale", "replicasets/scale"]
+  verbs: ["update", "patch"]
+{{- end }}
+
+# Istio resources (if using service mesh)
+- apiGroups: ["networking.istio.io"]
+  resources: ["virtualservices", "destinationrules", "gateways"]
+  verbs: ["get", "list", "watch"]
+{{- if not .Values.cbModel.mcp.nonDestructive }}
+- apiGroups: ["networking.istio.io"]
+  resources: ["virtualservices", "destinationrules"]
+  verbs: ["update", "patch"]
+{{- end }}
+---
+# RoleBinding - binds the role to the service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cb-model-target-services-binding
+  namespace: {{ .Values.cbModel.mcp.targetNamespace | default "target-services" }}
+  labels:
+    app: cb-model
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cb-model-target-services-role
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.cbModel.serviceAccountName | default "cb-model-sa" }}
+  namespace: {{ .Release.Namespace }}
+---
+# Additional Role for monitoring namespace (to read its own status)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cb-model-self-role
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: cb-model
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "services", "configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cb-model-self-binding
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: cb-model
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cb-model-self-role
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.cbModel.serviceAccountName | default "cb-model-sa" }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}

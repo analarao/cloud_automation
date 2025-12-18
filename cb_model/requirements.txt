@@ -25,9 +25,14 @@ httpx>=0.25.0
 typing_extensions==4.15.0
 
 # =============================================================================
-# Phase 2: MCP Client (prepared, not used yet)
+# Phase 2: MCP Client
 # =============================================================================
-# mcp>=0.1.0  # MCP Python client
+# Note: We're using mcp-server-kubernetes (Node.js) as a subprocess
+# The Python MCP client wrapper communicates via JSON-RPC over stdio
+# No additional Python packages needed for basic MCP functionality
+
+# For async subprocess handling (if needed)
+# asyncio is built-in since Python 3.4+
 
 # =============================================================================
 # Phase 3: Orchestrator (prepared, not used yet)

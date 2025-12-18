@@ -1,22 +1,29 @@
-# CB Model - vLLM with Tool Calling Support
+# CB Model - vLLM with Tool Calling + MCP Server
 # chandrashekar316/capstone:cb_model-toolcall
 #
-# This image runs vLLM's OpenAI-compatible server with tool calling enabled.
-# Uses Qwen2.5-Coder which supports Hermes-style tool calling.
+# This image runs vLLM's OpenAI-compatible server with tool calling enabled,
+# plus an embedded MCP server for Kubernetes operations.
 #
-# Phase 1: Enable vLLM native tool calling via OpenAI API
-# Phase 2: Add MCP client for kubernetes operations
+# Phase 1: Enable vLLM native tool calling via OpenAI API ✓
+# Phase 2: Add MCP server for kubernetes operations ✓
 # Phase 3: Add orchestrator for agentic loop
 
 FROM vllm/vllm-openai:latest
 
 WORKDIR /app
 
-# Install additional dependencies for MCP client (Phase 2 prep)
-# Node.js for mcp-server-kubernetes, Python packages for MCP client
+# Install kubectl for MCP server
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    ca-certificates \
+    && curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+    && chmod +x kubectl \
+    && mv kubectl /usr/local/bin/ \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js and mcp-server-kubernetes
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g mcp-server-kubernetes \
     && apt-get clean \
@@ -31,9 +38,13 @@ RUN pip install --no-cache-dir \
     mcp \
     && pip cache purge
 
-# Copy the orchestrator and bridge scripts (will be created in Phase 3)
-# For now, we just run vLLM server
+# Copy scripts
 COPY entrypoint.sh /app/entrypoint.sh
+COPY mcp_client.py /app/mcp_client.py
+COPY orchestrator.py /app/orchestrator.py
+COPY grpc_bridge.py /app/grpc_bridge.py
+COPY cb_model_v2_pb2.py /app/cb_model_v2_pb2.py
+COPY cb_model_v2_pb2_grpc.py /app/cb_model_v2_pb2_grpc.py
 RUN chmod +x /app/entrypoint.sh
 
 # Ports:
@@ -41,25 +52,31 @@ RUN chmod +x /app/entrypoint.sh
 # 50051 - gRPC bridge (backward compatibility, Phase 3)
 EXPOSE 8000 50051
 
-# Environment variables for vLLM
+# Environment variables
 ENV PYTHONUNBUFFERED=1 \
     # Model configuration
-    CB_MODEL_NAME="Qwen/Qwen2.5-Coder-32B-Instruct-AWQ" \
-    CB_MAX_MODEL_LEN=4096 \
-    CB_GPU_MEMORY_UTILIZATION=0.92 \
+    CB_MODEL_NAME="Qwen/Qwen2.5-Coder-14B-Instruct-AWQ" \
+    CB_MAX_MODEL_LEN=8192 \
+    CB_MAX_NUM_SEQS=64 \
+    CB_GPU_MEMORY_UTILIZATION=0.90 \
     CB_TENSOR_PARALLEL_SIZE=1 \
     CB_DTYPE=auto \
     CB_QUANTIZATION=awq \
-    CB_ENFORCE_EAGER=true \
+    CB_ENFORCE_EAGER=false \
     # Tool calling configuration
     CB_ENABLE_TOOL_CALLING=true \
     CB_TOOL_CALL_PARSER=hermes \
     # Server configuration
     CB_HTTP_PORT=8000 \
     CB_GRPC_PORT=50051 \
+    CB_ENABLE_GRPC_BRIDGE=false \
     # MCP configuration (Phase 2)
-    MCP_KUBERNETES_ENABLED=false \
-    MCP_TARGET_NAMESPACE=target-services
+    MCP_KUBERNETES_ENABLED=true \
+    MCP_TARGET_NAMESPACE=target-services \
+    MCP_NON_DESTRUCTIVE=false \
+    # Orchestrator configuration
+    CB_MAX_ITERATIONS=10 \
+    CB_MODEL_OPENAI_API_URL=http://localhost:8000/v1
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
