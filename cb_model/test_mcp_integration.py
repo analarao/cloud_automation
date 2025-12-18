@@ -66,9 +66,13 @@ async def test_kubectl_get(namespace: str):
     
     try:
         async with MCPKubernetesClient() as client:
+            # Note: MCP server uses camelCase for arguments
+            # name is required but can be empty string to list all
             result = await client.call_tool("kubectl_get", {
-                "resource_type": "pods",
-                "namespace": namespace
+                "resourceType": "pods",
+                "namespace": namespace,
+                "name": ""  # Empty = list all
+            })  "name": ""  # Empty = list all
             })
             
             if result.success:
@@ -165,8 +169,9 @@ def test_vllm_with_mcp_tools(vllm_url: str, namespace: str):
         print(f"  Using {len(test_tools)} tools from MCP server")
         
         # Connect to vLLM
+        # Note: vllm_url already includes /v1, don't add it again
         client = OpenAI(
-            base_url=f"{vllm_url}/v1",
+            base_url=vllm_url,
             api_key="dummy"
         )
         
