@@ -379,21 +379,37 @@ class IstioPrometheusQuerier:
         }
     
     def get_deployment_replicas(self, namespace: str, deployment: str) -> Dict:
-        """Get deployment replica status."""
+        """Get deployment replica status. Handles versioned deployments (e.g., reviews-v1, reviews-v2)."""
+        # Use regex to match versioned deployments (e.g., reviews, reviews-v1, reviews-v2)
+        deployment_pattern = f"{deployment}(-v[0-9]+)?"
+        
         queries = {
-            "desired": f'kube_deployment_spec_replicas{{namespace="{namespace}", deployment="{deployment}"}}',
-            "available": f'kube_deployment_status_replicas_available{{namespace="{namespace}", deployment="{deployment}"}}',
-            "ready": f'kube_deployment_status_replicas_ready{{namespace="{namespace}", deployment="{deployment}"}}',
-            "unavailable": f'kube_deployment_status_replicas_unavailable{{namespace="{namespace}", deployment="{deployment}"}}',
+            "desired": f'sum(kube_deployment_spec_replicas{{namespace="{namespace}", deployment=~"{deployment_pattern}"}})',
+            "available": f'sum(kube_deployment_status_replicas_available{{namespace="{namespace}", deployment=~"{deployment_pattern}"}})',
+            "ready": f'sum(kube_deployment_status_replicas_ready{{namespace="{namespace}", deployment=~"{deployment_pattern}"}})',
+            "unavailable": f'sum(kube_deployment_status_replicas_unavailable{{namespace="{namespace}", deployment=~"{deployment_pattern}"}})',
         }
         
-        result = {"deployment": deployment, "namespace": namespace}
+        result = {"deployment": deployment, "namespace": namespace, "versions": []}
+        
+        # Get aggregated totals
         for key, query in queries.items():
             data = self.query(query)
             if data:
                 result[key] = int(float(data[0]["value"][1]))
             else:
                 result[key] = 0
+        
+        # Also get individual deployment versions for detail
+        version_query = f'kube_deployment_spec_replicas{{namespace="{namespace}", deployment=~"{deployment_pattern}"}}'
+        version_data = self.query(version_query)
+        for item in version_data:
+            metric = item.get("metric", {})
+            value = int(float(item.get("value", [0, 0])[1]))
+            result["versions"].append({
+                "name": metric.get("deployment", ""),
+                "replicas": value
+            })
         
         return result
 
