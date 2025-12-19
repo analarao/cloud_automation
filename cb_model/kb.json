@@ -1,0 +1,110 @@
+{
+  "incidents": [
+    {
+      "id": "INC-2847",
+      "timestamp": "2025-11-15T14:32:00Z",
+      "service": "cart-service",
+      "symptom": "OutOfMemoryError, continuous memory growth",
+      "root_cause": "Memory leak in v2.3.1 deployment",
+      "resolution": "Rollback to v2.3.0",
+      "tags": ["memory", "oom", "leak", "deployment", "rollback"]
+    },
+    {
+      "id": "INC-2901",
+      "timestamp": "2025-11-22T09:15:00Z",
+      "service": "reviews-v3",
+      "symptom": "High latency, connection pool exhaustion",
+      "root_cause": "Database connection leak after config change",
+      "resolution": "Restart pods, revert connection pool settings",
+      "tags": ["latency", "database", "connection", "restart"]
+    },
+    {
+      "id": "INC-3012",
+      "timestamp": "2025-12-01T16:45:00Z",
+      "service": "payment-service",
+      "symptom": "CPU spike, request timeouts",
+      "root_cause": "Infinite loop in payment validation logic",
+      "resolution": "Rollback deployment, hotfix applied",
+      "tags": ["cpu", "timeout", "loop", "rollback", "hotfix"]
+    },
+    {
+      "id": "INC-3156",
+      "timestamp": "2025-12-10T11:20:00Z",
+      "service": "inventory-service",
+      "symptom": "Pod CrashLoopBackOff, OOMKilled",
+      "root_cause": "Memory limit too low for batch processing",
+      "resolution": "Increased memory limit from 256Mi to 512Mi",
+      "tags": ["crash", "oom", "memory", "limit", "scale"]
+    },
+    {
+      "id": "INC-3201",
+      "timestamp": "2025-12-14T08:30:00Z",
+      "service": "api-gateway",
+      "symptom": "5xx errors, upstream connection refused",
+      "root_cause": "Backend service not ready after deployment",
+      "resolution": "Added readiness probe, extended startup time",
+      "tags": ["5xx", "connection", "deployment", "probe", "startup"]
+    }
+  ],
+  "runbooks": [
+    {
+      "id": "RB-001",
+      "title": "High Memory Usage Remediation",
+      "trigger": "memory usage > 85%",
+      "steps": [
+        "Check recent deployments with kubectl rollout history",
+        "Analyze memory growth pattern in Prometheus",
+        "If post-deployment: rollback to previous revision",
+        "If gradual leak: restart pods to reclaim memory",
+        "Verify recovery with kubectl get pods"
+      ],
+      "tags": ["memory", "oom", "leak"]
+    },
+    {
+      "id": "RB-002",
+      "title": "Pod CrashLoopBackOff Recovery",
+      "trigger": "pod restart count > 3",
+      "steps": [
+        "Check pod events with kubectl describe",
+        "Review logs for error messages",
+        "If OOMKilled: increase memory limits",
+        "If config error: check configmaps and secrets",
+        "Apply fix and monitor for 5 minutes"
+      ],
+      "tags": ["crash", "restart", "oom", "config"]
+    },
+    {
+      "id": "RB-003",
+      "title": "High Latency Investigation",
+      "trigger": "p99 latency > 500ms",
+      "steps": [
+        "Check upstream/downstream service health",
+        "Query Prometheus for resource utilization",
+        "Check for connection pool exhaustion",
+        "If resource constrained: scale horizontally",
+        "If dependency issue: check service mesh"
+      ],
+      "tags": ["latency", "slow", "timeout", "scale"]
+    }
+  ],
+  "service_topology": {
+    "cart-service": {
+      "upstream": ["api-gateway", "frontend"],
+      "downstream": ["redis-cache", "inventory-db"],
+      "criticality": "high",
+      "owner": "cart-team"
+    },
+    "reviews-v3": {
+      "upstream": ["product-service"],
+      "downstream": ["ratings-db", "mongodb"],
+      "criticality": "medium",
+      "owner": "reviews-team"
+    },
+    "payment-service": {
+      "upstream": ["checkout-service"],
+      "downstream": ["payment-gateway", "fraud-detection"],
+      "criticality": "critical",
+      "owner": "payments-team"
+    }
+  }
+}
