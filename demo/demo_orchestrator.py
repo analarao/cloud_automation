@@ -310,11 +310,18 @@ class CrashLoopScenario(Scenario):
     
     def verify(self):
         show_tool_call("kubectl_get", {"resourceType": "pods", "namespace": self.namespace, "labelSelector": f"app={self.app_label},version={self.version_label}"})
-        time.sleep(3)
-        ok, out = kubectl(f"get pods -n {self.namespace} -l app={self.app_label},version={self.version_label}")
-        success = "Running" in out
-        show_tool_result(out, success)
-        return success
+        max_wait = 60
+        interval = 5
+        waited = 0
+        while waited < max_wait:
+            ok, out = kubectl(f"get pods -n {self.namespace} -l app={self.app_label},version={self.version_label}")
+            if "Running" in out:
+                show_tool_result(out, True)
+                return True
+            show_tool_result(out, False)
+            time.sleep(interval)
+            waited += interval
+        return False
 
 
 class ScaledToZeroScenario(Scenario):
