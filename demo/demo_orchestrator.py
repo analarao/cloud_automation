@@ -423,12 +423,12 @@ def print_header(text: str):
 def print_alert(scenario: Scenario):
     print(f"""
   ┌─────────────────────────────────────────────────────────┐
-  │  🚨 ALERT RECEIVED                                      │
+  │  🚨 ALERT RECEIVED                                     │
   ├─────────────────────────────────────────────────────────┤
   │  Name:      {scenario.name:<43} │
   │  Service:   {scenario.service:<43} │
   │  Namespace: {scenario.namespace:<43} │
-  │  Severity:  CRITICAL                                    │
+  │  Severity:  CRITICAL                                   │
   │  Time:      {datetime.now().strftime('%Y-%m-%d %H:%M:%S'):<43} │
   └─────────────────────────────────────────────────────────┘
 """)
