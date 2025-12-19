@@ -1,0 +1,84 @@
+# AlertManager Webhook Receiver Configuration
+# =============================================================================
+# This configures AlertManager to send alerts to the Alert Server
+# =============================================================================
+#
+# Add this to your AlertManager configuration (alertmanager.yaml):
+#
+# receivers:
+#   - name: 'alert-server-webhook'
+#     webhook_configs:
+#       - url: 'http://alert-server-service.monitoring.svc.cluster.local:9095/webhook'
+#         send_resolved: true
+#
+# route:
+#   receiver: 'alert-server-webhook'
+#   group_by: ['alertname', 'namespace', 'pod']
+#   group_wait: 10s
+#   group_interval: 10s
+#   repeat_interval: 1h
+#   routes:
+#     # Route critical alerts to the AI remediation pipeline
+#     - match:
+#         severity: critical
+#       receiver: 'alert-server-webhook'
+#       continue: true
+#     # Also route warning alerts
+#     - match:
+#         severity: warning
+#       receiver: 'alert-server-webhook'
+#       continue: true
+#
+# =============================================================================
+# For Prometheus Operator, add this to your PrometheusRule:
+# =============================================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: alert-remediation-rules
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  groups:
+  - name: alert-remediation.rules
+    rules:
+    # Example: Pod not ready alert
+    - alert: PodNotReady
+      expr: |
+        sum by (namespace, pod) (
+          kube_pod_status_ready{condition="false", namespace="target-services"}
+        ) > 0
+      for: 30s
+      labels:
+        severity: warning
+      annotations:
+        summary: "Pod {{ $labels.pod }} in {{ $labels.namespace }} is not ready"
+        description: "Pod {{ $labels.pod }} has been in a non-ready state for more than 30 seconds."
+    
+    # Example: High restart count
+    - alert: PodHighRestartCount
+      expr: |
+        sum by (namespace, pod, container) (
+          increase(kube_pod_container_status_restarts_total{namespace="target-services"}[1h])
+        ) > 5
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Pod {{ $labels.pod }} has high restart count"
+        description: "Container {{ $labels.container }} in pod {{ $labels.pod }} has restarted {{ $value }} times in the last hour."
+    
+    # Example: Deployment not at desired replicas
+    - alert: DeploymentReplicasMismatch
+      expr: |
+        kube_deployment_spec_replicas{namespace="target-services"} 
+        != 
+        kube_deployment_status_replicas_available{namespace="target-services"}
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Deployment {{ $labels.deployment }} has replica mismatch"
+        description: "Deployment {{ $labels.deployment }} in {{ $labels.namespace }} does not have the desired number of replicas available."

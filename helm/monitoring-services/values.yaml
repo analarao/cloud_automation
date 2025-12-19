@@ -299,3 +299,100 @@ alertAggregator:
     limits:
       cpu: "500m"
       memory: "512Mi"
+
+# =============================================================================
+# Alert Server (Alert Remediation - Server Component)
+# =============================================================================
+# Receives alerts from AlertManager webhook, enriches context from
+# Prometheus, Kiali, Loki, K8s API, and sends to Gemini client via gRPC.
+# =============================================================================
+
+alertServer:
+  enabled: true
+  replicas: 1
+  
+  image:
+    repository: chandrashekar316/capstone
+    tag: alert_server
+    pullPolicy: Always
+  
+  deployment:
+    name: alert-server-deployment
+  
+  service:
+    name: alert-server-service
+    type: ClusterIP
+    port: 9095
+  
+  # Service account for K8s API access
+  serviceAccountName: "alert-server-sa"
+  
+  # Kiali configuration
+  kiali:
+    url: "http://kiali.istio-system.svc.cluster.local:20001"
+  
+  # Query settings
+  metricsLookbackMinutes: 30
+  logsLookbackMinutes: 15
+  maxLogLines: 100
+  
+  # Timeouts
+  grpcTimeoutSeconds: 300  # Long timeout for Gemini processing
+  queryTimeoutSeconds: 30
+  
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# =============================================================================
+# Gemini Client (Alert Remediation - Client Component)
+# =============================================================================
+# Receives enriched alerts via gRPC, calls Google Gemini API with
+# MCP-style tool calling for Kubernetes operations, executes remediation.
+# =============================================================================
+
+geminiClient:
+  enabled: true
+  replicas: 1
+  
+  image:
+    repository: chandrashekar316/capstone
+    tag: gemini_client
+    pullPolicy: Always
+  
+  deployment:
+    name: gemini-client-deployment
+  
+  service:
+    name: gemini-client-service
+    type: ClusterIP
+    port: 50051
+  
+  # Service account for kubectl operations
+  serviceAccountName: "gemini-client-sa"
+  
+  # Gemini API configuration
+  # API key stored in secret: kubectl create secret generic gemini-api-key --from-literal=api-key=YOUR_KEY -n monitoring
+  apiKeySecret: "gemini-api-key"
+  geminiModel: "gemini-1.5-pro"
+  geminiTemperature: 0.1
+  
+  # MCP/Kubernetes settings
+  targetNamespace: "target-services"
+  nonDestructive: false  # Set to true to block write operations
+  maxIterations: 10
+  
+  # gRPC settings
+  grpcMaxWorkers: 10
+  
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"

@@ -1,0 +1,18 @@
+{{- if .Values.alertServer.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.alertServer.service.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: alert-server
+spec:
+  type: {{ .Values.alertServer.service.type | default "ClusterIP" }}
+  ports:
+  - name: webhook
+    port: {{ .Values.alertServer.service.port | default 9095 }}
+    targetPort: 9095
+    protocol: TCP
+  selector:
+    app: alert-server
+{{- end }}
