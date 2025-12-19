@@ -1,0 +1,17 @@
+version: "3.8"
+services:
+  rag:
+    build: .
+    container_name: rag_app
+    env_file:
+      - .env
+    environment:
+      - DB_PATH=/app/runbook_db
+      - CHROMA_PATH=/app/chroma_db
+    volumes:
+      - ./chroma_db:/app/chroma_db
+      - ./runbook_db:/app/runbook_db
+      - ./:/app
+    restart: unless-stopped
+
+

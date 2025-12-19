@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag
+  namespace: rag
+  labels:
+    app: rag
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag
+  template:
+    metadata:
+      labels:
+        app: rag
+    spec:
+      containers:
+      - name: rag
+        image: chandrashekar316/capstone:rag
+        imagePullPolicy: Always
+        env:
+        - name: DB_PATH
+          value: /app/runbook_db
+        - name: CHROMA_PATH
+          value: /app/chroma_db
+        envFrom:
+        - secretRef:
+            name: rag-secrets
+        volumeMounts:
+        - name: chroma-db
+          mountPath: /app/chroma_db
+        - name: runbook-db
+          mountPath: /app/runbook_db
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+      restartPolicy: Always
+      volumes:
+      - name: chroma-db
+        persistentVolumeClaim:
+          claimName: chroma-db-pvc
+      - name: runbook-db
+        persistentVolumeClaim:
+          claimName: runbook-db-pvc
