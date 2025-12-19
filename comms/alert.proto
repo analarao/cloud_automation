@@ -132,8 +132,8 @@ message ContainerInfo {
 }
 
 message ResourceSpec {
-    string cpu = 1;     // e.g., "500m"
-    string memory = 2;  // e.g., "512Mi"
+    string cpu = 1; // e.g., "500m"
+    string memory = 2; // e.g., "512Mi"
 }
 
 message Port {
@@ -166,7 +166,7 @@ message KubernetesInfo {
 message PodInfo {
     string name = 1;
     string uid = 2;
-    string phase = 3;  // Running, Pending, Failed, etc.
+    string phase = 3; // Running, Pending, Failed, etc.
     string pod_ip = 4;
     string host_ip = 5;
     map<string, string> labels = 6;
@@ -176,14 +176,14 @@ message PodInfo {
 }
 
 message PodCondition {
-    string type = 1;    // Ready, ContainersReady, etc.
-    string status = 2;  // True, False, Unknown
+    string type = 1; // Ready, ContainersReady, etc.
+    string status = 2; // True, False, Unknown
     string reason = 3;
     string message = 4;
 }
 
 message WorkloadInfo {
-    string kind = 1;       // Deployment, StatefulSet, DaemonSet
+    string kind = 1; // Deployment, StatefulSet, DaemonSet
     string name = 2;
     string namespace = 3;
     int32 replicas = 4;
@@ -195,7 +195,7 @@ message WorkloadInfo {
 message ServiceInfo {
     string name = 1;
     string namespace = 2;
-    string type = 3;       // ClusterIP, NodePort, LoadBalancer
+    string type = 3; // ClusterIP, NodePort, LoadBalancer
     string cluster_ip = 4;
     repeated ServicePort ports = 5;
 }
@@ -222,7 +222,7 @@ message NodeCondition {
 }
 
 message KubeEvent {
-    string type = 1;      // Normal, Warning
+    string type = 1; // Normal, Warning
     string reason = 2;
     string message = 3;
     string source = 4;
@@ -256,7 +256,7 @@ message ServiceDependency {
     double requests_per_second = 3;
     double error_rate = 4;
     double p99_latency_ms = 5;
-    string health_status = 6;  // healthy, degraded, failure
+    string health_status = 6; // healthy, degraded, failure
 }
 
 message TrafficMetrics {
@@ -309,7 +309,7 @@ message LogInfo {
     repeated LogEntry errors = 2;
     
     // Log source
-    string source = 3;  // loki, kubernetes, stdout
+    string source = 3; // loki, kubernetes, stdout
     
     // Time range
     int64 start_time = 4;
@@ -318,7 +318,7 @@ message LogInfo {
 
 message LogEntry {
     int64 timestamp = 1;
-    string level = 2;    // INFO, WARN, ERROR, DEBUG
+    string level = 2; // INFO, WARN, ERROR, DEBUG
     string message = 3;
     string container = 4;
     string pod = 5;
@@ -345,7 +345,7 @@ message AlertResponse {
     repeated RemediationAction actions = 5;
     
     // Overall status
-    string status = 6;  // completed, partial, failed
+    string status = 6; // completed, partial, failed
     
     // Confidence score (0-1)
     float confidence = 7;
@@ -405,7 +405,7 @@ message RemediationUpdate {
     string request_id = 1;
     string step = 2;
     string message = 3;
-    string status = 4;  // in_progress, completed, failed
+    string status = 4; // in_progress, completed, failed
     int64 timestamp = 5;
 }
 
