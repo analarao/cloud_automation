@@ -470,9 +470,9 @@ def run_scenario(scenario: Scenario):
     if success:
         print(f"""
   ┌─────────────────────────────────────────────────────────┐
-  │  ✅ REMEDIATION SUCCESSFUL                               │
+  │  ✅ REMEDIATION SUCCESSFUL                              │
   │                                                         │
-  │  Service {scenario.service:<45} │
+  │  Service {scenario.service:<45}  │
   │  Status: HEALTHY                                        │
   │  Resolution Time: ~15 seconds                           │
   └─────────────────────────────────────────────────────────┘
@@ -480,7 +480,7 @@ def run_scenario(scenario: Scenario):
     else:
         print(f"""
   ┌─────────────────────────────────────────────────────────┐
-  │  ⚠️  REMEDIATION NEEDS REVIEW                            │
+  │  ⚠️  REMEDIATION NEEDS REVIEW                           │
   │                                                         │
   │  Service may need manual intervention.                  │
   └─────────────────────────────────────────────────────────┘
