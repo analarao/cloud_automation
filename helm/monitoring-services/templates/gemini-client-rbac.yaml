@@ -1,0 +1,123 @@
+{{- if .Values.geminiClient.enabled }}
+# =============================================================================
+# RBAC for Gemini Client
+# =============================================================================
+# The Gemini client needs kubectl access to execute remediation actions.
+# This RBAC configuration scopes access to the target-services namespace only.
+# =============================================================================
+
+---
+# ServiceAccount for the Gemini Client
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gemini-client-sa
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: gemini-client
+
+---
+# Role scoped to target-services namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gemini-client-role
+  namespace: {{ .Values.geminiClient.targetNamespace | default "target-services" }}
+  labels:
+    app: gemini-client
+rules:
+# Read access to most resources
+- apiGroups: [""]
+  resources:
+  - pods
+  - pods/log
+  - services
+  - endpoints
+  - configmaps
+  - events
+  - namespaces
+  verbs: ["get", "list", "watch"]
+
+# Read access to apps resources
+- apiGroups: ["apps"]
+  resources:
+  - deployments
+  - replicasets
+  - statefulsets
+  - daemonsets
+  verbs: ["get", "list", "watch"]
+
+# Write access for remediation
+- apiGroups: [""]
+  resources:
+  - pods
+  verbs: ["delete"]  # For pod restart
+
+- apiGroups: ["apps"]
+  resources:
+  - deployments
+  - deployments/scale
+  verbs: ["get", "list", "watch", "update", "patch"]
+
+- apiGroups: ["apps"]
+  resources:
+  - replicasets
+  verbs: ["get", "list", "watch", "update", "patch"]
+
+# Istio resources (optional)
+- apiGroups: ["networking.istio.io"]
+  resources:
+  - virtualservices
+  - destinationrules
+  - gateways
+  verbs: ["get", "list", "watch"]
+
+---
+# RoleBinding to bind the role to the service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gemini-client-rolebinding
+  namespace: {{ .Values.geminiClient.targetNamespace | default "target-services" }}
+  labels:
+    app: gemini-client
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gemini-client-role
+subjects:
+- kind: ServiceAccount
+  name: gemini-client-sa
+  namespace: {{ .Release.Namespace }}
+
+---
+# ClusterRole for cluster-wide read access (nodes, etc.)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gemini-client-cluster-role
+  labels:
+    app: gemini-client
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  verbs: ["get", "list", "watch"]
+
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gemini-client-cluster-rolebinding
+  labels:
+    app: gemini-client
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: gemini-client-cluster-role
+subjects:
+- kind: ServiceAccount
+  name: gemini-client-sa
+  namespace: {{ .Release.Namespace }}
+{{- end }}

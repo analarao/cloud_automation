@@ -1,0 +1,419 @@
+syntax = "proto3";
+
+package alert_remediation;
+
+// =============================================================================
+// Alert Remediation Service
+// =============================================================================
+// Server: Receives alerts from AlertManager, enriches context, sends to client
+// Client: Receives enriched alerts, calls Gemini API with MCP for remediation
+// =============================================================================
+
+service AlertRemediationService {
+    // Send enriched alert from server to client for analysis and remediation
+    rpc AnalyzeAndRemediate(AlertRequest) returns (AlertResponse) {}
+    
+    // Stream remediation progress updates
+    rpc AnalyzeAndRemediateStream(AlertRequest) returns (stream RemediationUpdate) {}
+    
+    // Health check
+    rpc HealthCheck(HealthRequest) returns (HealthResponse) {}
+}
+
+// =============================================================================
+// ALERT REQUEST (Server -> Client)
+// =============================================================================
+
+message AlertRequest {
+    // Unique request ID for tracing
+    string request_id = 1;
+    
+    // Alert metadata
+    AlertMetadata alert = 2;
+    
+    // Container/Pod context
+    ContainerInfo container = 3;
+    
+    // Kubernetes context
+    KubernetesInfo kubernetes = 4;
+    
+    // Service mesh dependencies
+    ServiceMeshInfo service_mesh = 5;
+    
+    // Metrics context
+    MetricsInfo metrics = 6;
+    
+    // Log samples
+    LogInfo logs = 7;
+    
+    // Timestamp when request was created
+    int64 created_at = 8;
+}
+
+// Core alert information from AlertManager
+message AlertMetadata {
+    // Alert name (e.g., "BookinfoReviewsDown")
+    string name = 1;
+    
+    // Severity: critical, warning, info
+    string severity = 2;
+    
+    // State: firing, resolved, pending
+    string state = 3;
+    
+    // Human-readable summary
+    string summary = 4;
+    
+    // Detailed description
+    string description = 5;
+    
+    // Alert fingerprint (unique hash)
+    string fingerprint = 6;
+    
+    // PromQL expression that triggered alert
+    string promql_expression = 7;
+    
+    // Current metric value
+    double current_value = 8;
+    
+    // Threshold that was breached
+    double threshold_value = 9;
+    
+    // Duration alert has been firing
+    string duration = 10;
+    
+    // Alert labels
+    map<string, string> labels = 11;
+    
+    // Alert annotations
+    map<string, string> annotations = 12;
+    
+    // When alert started firing
+    int64 starts_at = 13;
+    
+    // Generator URL (Prometheus/AlertManager)
+    string generator_url = 14;
+}
+
+// Container information
+message ContainerInfo {
+    // Container ID
+    string container_id = 1;
+    
+    // Container name
+    string container_name = 2;
+    
+    // Full image name
+    string image = 3;
+    
+    // Image tag
+    string image_tag = 4;
+    
+    // Image digest (SHA256)
+    string image_hash = 5;
+    
+    // Container state: running, waiting, terminated
+    string state = 6;
+    
+    // Restart count
+    int32 restart_count = 7;
+    
+    // Last termination reason
+    string termination_reason = 8;
+    
+    // Resource limits
+    ResourceSpec limits = 9;
+    
+    // Resource requests
+    ResourceSpec requests = 10;
+    
+    // Exposed ports
+    repeated Port ports = 11;
+}
+
+message ResourceSpec {
+    string cpu = 1; // e.g., "500m"
+    string memory = 2; // e.g., "512Mi"
+}
+
+message Port {
+    string name = 1;
+    int32 port = 2;
+    string protocol = 3;
+}
+
+// Kubernetes cluster context
+message KubernetesInfo {
+    // Namespace
+    string namespace = 1;
+    
+    // Pod info
+    PodInfo pod = 2;
+    
+    // Parent workload (Deployment, StatefulSet, etc.)
+    WorkloadInfo workload = 3;
+    
+    // Services exposing this pod
+    repeated ServiceInfo services = 4;
+    
+    // Node info
+    NodeInfo node = 5;
+    
+    // Recent events
+    repeated KubeEvent events = 6;
+}
+
+message PodInfo {
+    string name = 1;
+    string uid = 2;
+    string phase = 3; // Running, Pending, Failed, etc.
+    string pod_ip = 4;
+    string host_ip = 5;
+    map<string, string> labels = 6;
+    map<string, string> annotations = 7;
+    int64 created_at = 8;
+    repeated PodCondition conditions = 9;
+}
+
+message PodCondition {
+    string type = 1; // Ready, ContainersReady, etc.
+    string status = 2; // True, False, Unknown
+    string reason = 3;
+    string message = 4;
+}
+
+message WorkloadInfo {
+    string kind = 1; // Deployment, StatefulSet, DaemonSet
+    string name = 2;
+    string namespace = 3;
+    int32 replicas = 4;
+    int32 ready_replicas = 5;
+    int32 available_replicas = 6;
+    map<string, string> labels = 7;
+}
+
+message ServiceInfo {
+    string name = 1;
+    string namespace = 2;
+    string type = 3; // ClusterIP, NodePort, LoadBalancer
+    string cluster_ip = 4;
+    repeated ServicePort ports = 5;
+}
+
+message ServicePort {
+    string name = 1;
+    int32 port = 2;
+    int32 target_port = 3;
+    string protocol = 4;
+}
+
+message NodeInfo {
+    string name = 1;
+    string internal_ip = 2;
+    string kubelet_version = 3;
+    bool schedulable = 4;
+    repeated NodeCondition conditions = 5;
+}
+
+message NodeCondition {
+    string type = 1;
+    string status = 2;
+    string reason = 3;
+}
+
+message KubeEvent {
+    string type = 1; // Normal, Warning
+    string reason = 2;
+    string message = 3;
+    string source = 4;
+    int64 timestamp = 5;
+    int32 count = 6;
+}
+
+// Service mesh (Istio/Kiali) information
+message ServiceMeshInfo {
+    // This service's identity
+    string service_name = 1;
+    string service_namespace = 2;
+    
+    // Upstream dependencies (services this calls)
+    repeated ServiceDependency upstream = 3;
+    
+    // Downstream dependencies (services that call this)
+    repeated ServiceDependency downstream = 4;
+    
+    // Traffic metrics
+    TrafficMetrics traffic = 5;
+    
+    // Sidecar status
+    bool sidecar_injected = 6;
+    string mtls_mode = 7;
+}
+
+message ServiceDependency {
+    string service_name = 1;
+    string namespace = 2;
+    double requests_per_second = 3;
+    double error_rate = 4;
+    double p99_latency_ms = 5;
+    string health_status = 6; // healthy, degraded, failure
+}
+
+message TrafficMetrics {
+    double requests_per_second = 1;
+    double success_rate = 2;
+    double error_rate_4xx = 3;
+    double error_rate_5xx = 4;
+    double p50_latency_ms = 5;
+    double p99_latency_ms = 6;
+}
+
+// Metrics information
+message MetricsInfo {
+    // CPU metrics
+    MetricSeries cpu = 1;
+    
+    // Memory metrics
+    MetricSeries memory = 2;
+    
+    // Network metrics
+    MetricSeries network_rx = 3;
+    MetricSeries network_tx = 4;
+    
+    // Custom/application metrics
+    repeated MetricSeries custom = 5;
+}
+
+message MetricSeries {
+    string name = 1;
+    string unit = 2;
+    double current = 3;
+    double avg = 4;
+    double max = 5;
+    double min = 6;
+    // Recent values (last N minutes)
+    repeated MetricPoint values = 7;
+}
+
+message MetricPoint {
+    int64 timestamp = 1;
+    double value = 2;
+}
+
+// Log information
+message LogInfo {
+    // Recent log entries
+    repeated LogEntry entries = 1;
+    
+    // Error logs specifically
+    repeated LogEntry errors = 2;
+    
+    // Log source
+    string source = 3; // loki, kubernetes, stdout
+    
+    // Time range
+    int64 start_time = 4;
+    int64 end_time = 5;
+}
+
+message LogEntry {
+    int64 timestamp = 1;
+    string level = 2; // INFO, WARN, ERROR, DEBUG
+    string message = 3;
+    string container = 4;
+    string pod = 5;
+}
+
+// =============================================================================
+// ALERT RESPONSE (Client -> Server)
+// =============================================================================
+
+message AlertResponse {
+    // Request ID echoed back
+    string request_id = 1;
+    
+    // Success status
+    bool success = 2;
+    
+    // Error message if failed
+    string error = 3;
+    
+    // Root cause analysis
+    RootCauseAnalysis analysis = 4;
+    
+    // Actions taken
+    repeated RemediationAction actions = 5;
+    
+    // Overall status
+    string status = 6; // completed, partial, failed
+    
+    // Confidence score (0-1)
+    float confidence = 7;
+    
+    // LLM response for debugging
+    string raw_llm_response = 8;
+    
+    // Processing time in ms
+    int64 processing_time_ms = 9;
+}
+
+message RootCauseAnalysis {
+    // Primary cause
+    string primary_cause = 1;
+    
+    // Contributing factors
+    repeated string contributing_factors = 2;
+    
+    // Evidence
+    repeated string evidence = 3;
+    
+    // Category: resource, config, dependency, network, application
+    string category = 4;
+}
+
+message RemediationAction {
+    // Priority (1 = highest)
+    int32 priority = 1;
+    
+    // Action type: kubectl, api, manual
+    string action_type = 2;
+    
+    // Description
+    string description = 3;
+    
+    // Command executed
+    string command = 4;
+    
+    // Command output
+    string output = 5;
+    
+    // Success status
+    bool success = 6;
+    
+    // Error if failed
+    string error = 7;
+    
+    // Risk level: low, medium, high
+    string risk_level = 8;
+    
+    // Timestamp
+    int64 executed_at = 9;
+}
+
+// Streaming remediation updates
+message RemediationUpdate {
+    string request_id = 1;
+    string step = 2;
+    string message = 3;
+    string status = 4; // in_progress, completed, failed
+    int64 timestamp = 5;
+}
+
+// Health check
+message HealthRequest {}
+
+message HealthResponse {
+    bool healthy = 1;
+    string status = 2;
+    map<string, string> details = 3;
+}

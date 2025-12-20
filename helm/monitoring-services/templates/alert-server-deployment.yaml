@@ -1,0 +1,79 @@
+{{- if .Values.alertServer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.alertServer.deployment.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: alert-server
+spec:
+  replicas: {{ .Values.alertServer.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: alert-server
+  template:
+    metadata:
+      labels:
+        app: alert-server
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9095"
+    spec:
+      serviceAccountName: {{ .Values.alertServer.serviceAccountName | default "default" }}
+      containers:
+      - name: alert-server
+        image: "{{ .Values.alertServer.image.repository }}:{{ .Values.alertServer.image.tag }}"
+        imagePullPolicy: {{ .Values.alertServer.image.pullPolicy | default "Always" }}
+        ports:
+        - name: webhook
+          containerPort: 9095
+          protocol: TCP
+        env:
+        # Prometheus
+        - name: PROMETHEUS_URL
+          value: "http://{{ .Values.services.prometheus.host }}:{{ .Values.services.prometheus.port }}"
+        # AlertManager
+        - name: ALERTMANAGER_URL
+          value: "http://{{ .Values.services.alertmanager.host }}:{{ .Values.services.alertmanager.port }}"
+        # Kiali
+        - name: KIALI_URL
+          value: "{{ .Values.alertServer.kiali.url | default "http://kiali.istio-system.svc.cluster.local:20001" }}"
+        # Loki
+        - name: LOKI_URL
+          value: "http://{{ .Values.services.loki.host }}:{{ .Values.services.loki.port }}"
+        # Gemini Client
+        - name: GEMINI_CLIENT_HOST
+          value: "{{ .Values.geminiClient.service.name }}"
+        - name: GEMINI_CLIENT_PORT
+          value: "{{ .Values.geminiClient.service.port | default 50051 }}"
+        # Query settings
+        - name: METRICS_LOOKBACK_MINUTES
+          value: "{{ .Values.alertServer.metricsLookbackMinutes | default 30 }}"
+        - name: LOGS_LOOKBACK_MINUTES
+          value: "{{ .Values.alertServer.logsLookbackMinutes | default 15 }}"
+        - name: MAX_LOG_LINES
+          value: "{{ .Values.alertServer.maxLogLines | default 100 }}"
+        # Timeouts
+        - name: GRPC_TIMEOUT_SECONDS
+          value: "{{ .Values.alertServer.grpcTimeoutSeconds | default 300 }}"
+        resources:
+          requests:
+            cpu: {{ .Values.alertServer.resources.requests.cpu | default "100m" }}
+            memory: {{ .Values.alertServer.resources.requests.memory | default "256Mi" }}
+          limits:
+            cpu: {{ .Values.alertServer.resources.limits.cpu | default "500m" }}
+            memory: {{ .Values.alertServer.resources.limits.memory | default "512Mi" }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: webhook
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: webhook
+          initialDelaySeconds: 5
+          periodSeconds: 10
+{{- end }}

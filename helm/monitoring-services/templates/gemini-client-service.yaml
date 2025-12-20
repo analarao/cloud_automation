@@ -1,0 +1,18 @@
+{{- if .Values.geminiClient.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.geminiClient.service.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: gemini-client
+spec:
+  type: {{ .Values.geminiClient.service.type | default "ClusterIP" }}
+  ports:
+  - name: grpc
+    port: {{ .Values.geminiClient.service.port | default 50051 }}
+    targetPort: 50051
+    protocol: TCP
+  selector:
+    app: gemini-client
+{{- end }}

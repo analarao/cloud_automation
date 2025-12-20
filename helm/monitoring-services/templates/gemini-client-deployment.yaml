@@ -1,0 +1,75 @@
+{{- if .Values.geminiClient.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.geminiClient.deployment.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: gemini-client
+spec:
+  replicas: {{ .Values.geminiClient.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: gemini-client
+  template:
+    metadata:
+      labels:
+        app: gemini-client
+        version: v1
+    spec:
+      serviceAccountName: {{ .Values.geminiClient.serviceAccountName | default "gemini-client-sa" }}
+      containers:
+      - name: gemini-client
+        image: "{{ .Values.geminiClient.image.repository }}:{{ .Values.geminiClient.image.tag }}"
+        imagePullPolicy: {{ .Values.geminiClient.image.pullPolicy | default "Always" }}
+        ports:
+        - name: grpc
+          containerPort: 50051
+          protocol: TCP
+        env:
+        # gRPC settings
+        - name: GRPC_PORT
+          value: "50051"
+        - name: GRPC_MAX_WORKERS
+          value: "{{ .Values.geminiClient.grpcMaxWorkers | default 10 }}"
+        # Gemini API
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.geminiClient.apiKeySecret | default "gemini-api-key" }}
+              key: api-key
+        - name: GEMINI_MODEL
+          value: "{{ .Values.geminiClient.geminiModel | default "gemini-1.5-pro" }}"
+        - name: GEMINI_TEMPERATURE
+          value: "{{ .Values.geminiClient.geminiTemperature | default 0.1 }}"
+        # MCP/Kubernetes settings
+        - name: TARGET_NAMESPACE
+          value: "{{ .Values.geminiClient.targetNamespace | default "target-services" }}"
+        - name: MCP_NON_DESTRUCTIVE
+          value: "{{ .Values.geminiClient.nonDestructive | default false }}"
+        - name: MAX_ITERATIONS
+          value: "{{ .Values.geminiClient.maxIterations | default 10 }}"
+        resources:
+          requests:
+            cpu: {{ .Values.geminiClient.resources.requests.cpu | default "100m" }}
+            memory: {{ .Values.geminiClient.resources.requests.memory | default "256Mi" }}
+          limits:
+            cpu: {{ .Values.geminiClient.resources.limits.cpu | default "500m" }}
+            memory: {{ .Values.geminiClient.resources.limits.memory | default "512Mi" }}
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import grpc; ch = grpc.insecure_channel('localhost:50051'); grpc.channel_ready_future(ch).result(timeout=5)"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import grpc; ch = grpc.insecure_channel('localhost:50051'); grpc.channel_ready_future(ch).result(timeout=5)"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+{{- end }}

@@ -1,4 +1,21 @@
-grpcio==1.76.0
-grpcio-tools==1.76.0
-protobuf==6.33.0
-typing_extensions==4.15.0
+# Alert Remediation - Python Dependencies
+# Shared requirements for both server and client
+
+# gRPC
+grpcio>=1.60.0
+grpcio-tools>=1.60.0
+protobuf>=4.25.0
+
+# HTTP/REST
+flask>=3.0.0
+requests>=2.31.0
+
+# Prometheus client
+prometheus-api-client>=0.5.3
+
+# Google Gemini API (new SDK)
+google-genai>=1.0.0
+
+# Utilities
+python-dateutil>=2.8.2
+typing_extensions>=4.15.0
