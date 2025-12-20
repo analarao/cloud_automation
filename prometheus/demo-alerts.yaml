@@ -1,0 +1,152 @@
+# Demo Alert Rules for CB Model Autonomous Remediation
+# These alerts are designed to be triggered by real issues for demo purposes
+#
+# Apply with: kubectl apply -f demo-alerts.yaml -n monitoring
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cb-demo-alerts
+  namespace: monitoring
+  labels:
+    release: prometheus
+    app: kube-prometheus-stack
+spec:
+  groups:
+  - name: cb-demo-alerts
+    rules:
+    
+    # ==========================================================================
+    # DEMO ALERT 1: Pod CrashLoopBackOff
+    # Triggered when a pod keeps restarting (crash loop)
+    # ==========================================================================
+    - alert: DemoPodCrashLooping
+      expr: |
+        increase(kube_pod_container_status_restarts_total{
+          namespace="target-services"
+        }[5m]) > 2
+      for: 30s
+      labels:
+        severity: critical
+        demo: "true"
+        alert_type: CRASH_LOOP
+      annotations:
+        summary: "Pod {{ $labels.pod }} is crash looping"
+        description: |
+          Container {{ $labels.container }} in pod {{ $labels.pod }} has restarted 
+          {{ $value | printf "%.0f" }} times in the last 5 minutes.
+          This indicates an application crash or configuration issue.
+        service: "{{ $labels.pod | reReplaceAll \"-[a-z0-9]+-[a-z0-9]+$\" \"\" | reReplaceAll \"-v[0-9]+$\" \"\" }}"
+        runbook_url: "https://runbooks.example.com/crash-loop"
+    
+    # ==========================================================================
+    # DEMO ALERT 2: High Memory Usage (OOMKill Risk)
+    # Triggered when container memory exceeds 80% of limit
+    # ==========================================================================
+    - alert: DemoHighMemoryUsage
+      expr: |
+        (
+          container_memory_working_set_bytes{
+            namespace="target-services",
+            container!="",
+            container!="istio-proxy",
+            container!="istio-init"
+          } 
+          / 
+          container_spec_memory_limit_bytes{
+            namespace="target-services",
+            container!="",
+            container!="istio-proxy",
+            container!="istio-init"
+          }
+        ) > 0.8
+      for: 1m
+      labels:
+        severity: warning
+        demo: "true"
+        alert_type: MEMORY_PRESSURE
+      annotations:
+        summary: "High memory usage in {{ $labels.pod }}"
+        description: |
+          Container {{ $labels.container }} in pod {{ $labels.pod }} is using 
+          {{ $value | humanizePercentage }} of its memory limit.
+          Risk of OOMKill if memory usage continues to increase.
+        service: "{{ $labels.pod | reReplaceAll \"-[a-z0-9]+-[a-z0-9]+$\" \"\" | reReplaceAll \"-v[0-9]+$\" \"\" }}"
+        runbook_url: "https://runbooks.example.com/high-memory"
+    
+    # ==========================================================================
+    # DEMO ALERT 3: Service Endpoint Down
+    # Triggered when no endpoints are available for a service
+    # ==========================================================================
+    - alert: DemoServiceEndpointsDown
+      expr: |
+        kube_endpoint_address_available{
+          namespace="target-services"
+        } == 0
+      for: 30s
+      labels:
+        severity: critical
+        demo: "true"
+        alert_type: SERVICE_DOWN
+      annotations:
+        summary: "Service {{ $labels.endpoint }} has no available endpoints"
+        description: |
+          The service {{ $labels.endpoint }} in namespace {{ $labels.namespace }} 
+          has no healthy endpoints. This means no pods are ready to serve traffic.
+          Immediate investigation required.
+        service: "{{ $labels.endpoint }}"
+        runbook_url: "https://runbooks.example.com/no-endpoints"
+    
+    # ==========================================================================
+    # DEMO ALERT 4: Deployment Replica Mismatch
+    # Triggered when actual replicas don't match desired
+    # ==========================================================================
+    - alert: DemoDeploymentReplicasMismatch
+      expr: |
+        kube_deployment_spec_replicas{namespace="target-services"}
+        != 
+        kube_deployment_status_replicas_available{namespace="target-services"}
+      for: 2m
+      labels:
+        severity: warning
+        demo: "true"
+        alert_type: REPLICA_MISMATCH
+      annotations:
+        summary: "Deployment {{ $labels.deployment }} has replica mismatch"
+        description: |
+          Deployment {{ $labels.deployment }} in namespace {{ $labels.namespace }} 
+          has {{ $value }} desired replicas but not all are available.
+          This could indicate failed pods or resource constraints.
+        service: "{{ $labels.deployment | reReplaceAll \"-v[0-9]+$\" \"\" }}"
+        runbook_url: "https://runbooks.example.com/replica-mismatch"
+    
+    # ==========================================================================
+    # DEMO ALERT 5: High Error Rate (5xx responses)
+    # Triggered when service has elevated error rate
+    # ==========================================================================
+    - alert: DemoHighErrorRate
+      expr: |
+        (
+          sum(rate(istio_requests_total{
+            destination_service_namespace="target-services",
+            response_code=~"5.*"
+          }[2m])) by (destination_app, destination_service_namespace)
+          /
+          sum(rate(istio_requests_total{
+            destination_service_namespace="target-services"
+          }[2m])) by (destination_app, destination_service_namespace)
+        ) > 0.1
+      for: 1m
+      labels:
+        severity: critical
+        demo: "true"
+        alert_type: HIGH_ERROR_RATE
+      annotations:
+        summary: "High error rate for {{ $labels.destination_app }}"
+        description: |
+          Service {{ $labels.destination_app }} is experiencing 
+          {{ $value | humanizePercentage }} error rate (5xx responses).
+          This indicates application errors or downstream failures.
+        service: "{{ $labels.destination_app }}"
+        namespace: "{{ $labels.destination_service_namespace }}"
+        runbook_url: "https://runbooks.example.com/high-error-rate"

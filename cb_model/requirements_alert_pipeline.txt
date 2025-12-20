@@ -1,0 +1,20 @@
+# Alert Pipeline Requirements (Minimal)
+# Flask webhook server + LLM orchestrator dependencies
+
+# Web framework for AlertManager webhook
+flask>=3.0.0
+
+# HTTP client (use requests OR httpx, not both)
+requests>=2.31.0
+
+# Prometheus queries
+prometheus-api-client>=0.5.3
+
+# OpenAI client for vLLM (minimal install)
+openai>=1.0.0
+
+# Async support for MCP client
+aiohttp>=3.9.0
+
+# MCP SDK for Kubernetes tool calls
+mcp>=1.0.0

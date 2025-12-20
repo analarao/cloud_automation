@@ -1,0 +1,80 @@
+{{- if .Values.alertPipeline.enabled }}
+# Alert Pipeline Deployment
+# Receives alerts from Alertmanager, aggregates context, and sends to CB Model LLM
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-pipeline
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: alert-pipeline
+    component: cb-model
+spec:
+  replicas: {{ .Values.alertPipeline.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: alert-pipeline
+  template:
+    metadata:
+      labels:
+        app: alert-pipeline
+        component: cb-model
+    spec:
+      serviceAccountName: cb-model-sa
+      containers:
+        - name: alert-pipeline
+          image: {{ .Values.alertPipeline.image }}
+          imagePullPolicy: {{ .Values.alertPipeline.imagePullPolicy | default "Always" }}
+          ports:
+            - containerPort: 9095
+              name: webhook
+          env:
+            - name: PROMETHEUS_URL
+              value: {{ .Values.alertPipeline.prometheusUrl | quote }}
+            - name: CB_MODEL_OPENAI_API_URL
+              value: {{ .Values.alertPipeline.vllmUrl | quote }}
+            - name: TARGET_NAMESPACE
+              value: {{ .Values.alertPipeline.targetNamespace | quote }}
+            - name: MAX_ITERATIONS
+              value: {{ .Values.alertPipeline.maxIterations | default 10 | quote }}
+            - name: WEBHOOK_PORT
+              value: "9095"
+          resources:
+            requests:
+              cpu: {{ .Values.alertPipeline.resources.requests.cpu | default "100m" | quote }}
+              memory: {{ .Values.alertPipeline.resources.requests.memory | default "256Mi" | quote }}
+            limits:
+              cpu: {{ .Values.alertPipeline.resources.limits.cpu | default "500m" | quote }}
+              memory: {{ .Values.alertPipeline.resources.limits.memory | default "512Mi" | quote }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9095
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9095
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+# Service for Alert Pipeline
+apiVersion: v1
+kind: Service
+metadata:
+  name: alert-pipeline-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: alert-pipeline
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9095
+      targetPort: 9095
+      protocol: TCP
+      name: webhook
+  selector:
+    app: alert-pipeline
+{{- end }}

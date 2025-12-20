@@ -24,6 +24,7 @@ spec:
       # Labels to add to the alert. Used by Alertmanager to route it.
       labels:
         severity: critical
+        namespace: target-services
       
       # The human-readable message.
       annotations:
